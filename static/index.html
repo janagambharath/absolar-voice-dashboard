@@ -2,125 +2,336 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>AB Solar — Voice Agent Dashboard</title>
 <style>
   :root{
-    --bg:#0c0e12; --card:#14181f; --card2:#1a1f29; --line:#232a36;
-    --txt:#eef1f6; --mut:#8b94a5; --amber:#f5a623; --amber2:#ffcf6b;
-    --green:#34d17b; --red:#f4655f; --blue:#5aa9ff; --violet:#b48cff;
+    --bg:#0b0d11; --card:#131720; --card2:#1a2030; --line:#232b3d;
+    --txt:#f2f4f8; --mut:#8f99ad; --mut2:#6b7488;
+    --amber:#f5a623; --amber2:#ffcf6b; --amber-dim:#3a2a08;
+    --green:#34d17b; --green-dim:#0a2e1c;
+    --red:#f4655f; --red-dim:#3a1414;
+    --blue:#5aa9ff; --blue-dim:#0f2c4d;
+    --violet:#b48cff;
+    --r:18px; --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans Telugu",sans-serif;padding:20px;max-width:1200px;margin:0 auto}
-  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
-  .brand{display:flex;align-items:center;gap:12px}
-  .logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--amber),#e07b00);display:flex;align-items:center;justify-content:center;font-size:22px}
-  .brand h1{font-size:20px;font-weight:700}
-  .brand p{color:var(--mut);font-size:13px}
-  .demo-badge{background:#3a2a08;color:var(--amber2);border:1px solid #6b4d12;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
-  .live-badge{background:#0a2e1c;color:var(--green);border:1px solid #14532d;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
-  .stat .v{font-size:26px;font-weight:800}
-  .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans Telugu","Noto Sans",sans-serif;
+    font-size:16px;line-height:1.5;min-height:100vh;
+    padding-bottom:calc(84px + var(--sab));}
+  @media(min-width:900px){body{padding-bottom:40px}}
+
+  /* ---------- top bar ---------- */
+  .topbar{position:sticky;top:0;z-index:40;background:rgba(11,13,17,.88);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line);padding:calc(10px + var(--sat)) 16px 10px;}
+  .topbar-in{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0}
+  .logo{width:42px;height:42px;flex:none;border-radius:13px;
+    background:linear-gradient(135deg,var(--amber),#d97a00);
+    display:flex;align-items:center;justify-content:center;font-size:21px;
+    box-shadow:0 4px 14px rgba(245,166,35,.28)}
+  .brand h1{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand p{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .desknav{display:none;gap:4px;margin-left:8px}
+  @media(min-width:900px){.desknav{display:flex}}
+  .dnav{border:none;background:transparent;color:var(--mut);font-size:14px;font-weight:600;
+    padding:10px 14px;border-radius:10px;cursor:pointer;min-height:44px}
+  .dnav.on{color:var(--txt);background:var(--card2)}
+  .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .balpill{background:var(--green-dim);border:1px solid #14532d;color:var(--green);
+    font-weight:800;font-size:14px;padding:8px 13px;border-radius:999px;white-space:nowrap}
+  .balpill.low{background:var(--red-dim);border-color:#5c1d1d;color:var(--red)}
+  .syncpill{display:none;align-items:center;gap:6px;color:var(--mut);font-size:12px;
+    background:var(--card);border:1px solid var(--line);padding:8px 12px;border-radius:999px;white-space:nowrap}
+  @media(min-width:640px){.syncpill{display:inline-flex}}
+  .syncpill .spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--amber);
+    border-radius:50%;animation:rot 1s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .iconbtn{background:var(--card);border:1px solid var(--line);color:var(--txt);
+    width:44px;height:44px;border-radius:12px;cursor:pointer;font-size:18px;
+    display:flex;align-items:center;justify-content:center;flex:none}
+  .iconbtn:active{transform:scale(.94)}
+  .modebadge{font-size:10px;font-weight:800;letter-spacing:.6px;padding:4px 9px;border-radius:999px}
+  .modebadge.live{background:var(--green-dim);color:var(--green);border:1px solid #14532d}
+  .modebadge.demo{background:var(--amber-dim);color:var(--amber2);border:1px solid #6b4d12}
+
+  main{max-width:1100px;margin:0 auto;padding:16px 14px 0}
+  @media(min-width:900px){main{padding:22px 20px 0}}
+
+  /* ---------- hero / cards ---------- */
+  .hero{background:linear-gradient(135deg,#182234,#101827 60%,#1d1607);
+    border:1px solid var(--line);border-radius:22px;padding:20px;margin-bottom:14px;position:relative;overflow:hidden}
+  .hero::after{content:"☀️";position:absolute;right:14px;top:8px;font-size:64px;opacity:.12}
+  .hero .k{color:var(--mut);font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+  .hero .big{font-size:38px;font-weight:800;margin:4px 0 2px;letter-spacing:-.5px}
+  .hero .sub{color:var(--mut);font-size:13px}
+  .hero .warn{margin-top:10px;background:var(--red-dim);border:1px solid #5c1d1d;color:var(--red);
+    font-size:13px;font-weight:600;padding:9px 12px;border-radius:12px}
+  .stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+  @media(min-width:640px){.stats-grid{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:900px){.stats-grid{grid-template-columns:repeat(6,1fr)}}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:15px 14px;min-height:92px;display:flex;flex-direction:column;justify-content:center}
+  .stat .v{font-size:24px;font-weight:800;letter-spacing:-.3px}
+  .stat .l{color:var(--mut);font-size:12px;margin-top:3px}
   .stat.q .v{color:var(--green)} .stat.s .v{color:var(--amber2)}
-  .tabs{display:flex;gap:8px;margin-bottom:14px}
-  .tab{background:var(--card);border:1px solid var(--line);color:var(--mut);padding:9px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600}
-  .tab.on{background:var(--card2);color:var(--txt);border-color:var(--amber)}
-  .toolbar{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
-  .toolbar input,.toolbar select{background:var(--card);border:1px solid var(--line);color:var(--txt);padding:9px 12px;border-radius:10px;font-size:14px}
-  .toolbar input{flex:1;min-width:180px}
-  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:14px}
-  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:12px 14px;border-bottom:1px solid var(--line)}
-  td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
-  tr:last-child td{border-bottom:none}
-  tr:hover td{background:var(--card2)}
-  .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
-  .p-qualified{background:#0a2e1c;color:var(--green)}
-  .p-callback{background:#0f2c4d;color:var(--blue)}
-  .p-not_interested{background:#3a1414;color:var(--red)}
-  .p-no_answer{background:#2c2c34;color:var(--mut)}
-  .p-new{background:#3a2a08;color:var(--amber2)}
-  .p-other{background:#2c2c34;color:var(--mut)}
-  .btn{background:var(--amber);color:#111;border:none;padding:7px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:18px;margin-bottom:14px}
+  .card h3{font-size:15px;font-weight:700;margin-bottom:4px}
+  .card .hint{color:var(--mut);font-size:12px;margin-bottom:12px}
+  .grid2{display:grid;gap:14px}
+  @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+
+  .bar-row{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:13px}
+  .bar-row .bl{width:118px;flex:none;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;height:10px;background:var(--card2);border-radius:6px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--amber),var(--amber2))}
+  .bar-fill.g{background:linear-gradient(90deg,#1f9d55,var(--green))}
+  .bar-fill.b{background:linear-gradient(90deg,#2f7fe0,var(--blue))}
+  .bar-fill.v{background:linear-gradient(90deg,#8a5cf6,var(--violet))}
+  .bar-row .bv{width:76px;flex:none;text-align:right;font-weight:700}
+  .chart{display:flex;align-items:flex-end;gap:6px;height:130px;padding-top:8px}
+  .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
+  .chart .cb{width:100%;max-width:34px;border-radius:6px 6px 3px 3px;
+    background:linear-gradient(180deg,var(--amber2),var(--amber));min-height:3px}
+  .chart .cd{font-size:10px;color:var(--mut2)}
+  .chart .cv{font-size:10px;color:var(--mut);font-weight:700}
+
+  .agentrow{display:flex;align-items:center;gap:12px}
+  .avatar{width:52px;height:52px;flex:none;border-radius:50%;
+    background:linear-gradient(135deg,#8a5cf6,#5aa9ff);
+    display:flex;align-items:center;justify-content:center;font-size:24px}
+  .agentrow .nm{font-weight:700;font-size:15px}
+  .agentrow .mt{color:var(--mut);font-size:13px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+  .kv:first-of-type{border-top:none}
+  .kv .k{color:var(--mut)} .kv .v{font-weight:600;text-align:right}
+
+  /* ---------- lists: cards on mobile, tables on desktop ---------- */
+  .toolbar{position:sticky;top:calc(63px + var(--sat));z-index:30;background:rgba(11,13,17,.92);
+    backdrop-filter:blur(10px);padding:10px 0;display:flex;gap:8px;margin-bottom:10px}
+  .toolbar input{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);
+    color:var(--txt);padding:12px 14px;border-radius:12px;font-size:16px;min-height:48px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--mut);
+    font-size:13px;font-weight:600;padding:10px 15px;border-radius:999px;cursor:pointer;min-height:44px}
+  .chip.on{background:var(--amber-dim);border-color:var(--amber);color:var(--amber2)}
+  .ccard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    padding:15px 16px;margin-bottom:10px;cursor:pointer}
+  .ccard:active{background:var(--card2)}
+  .ccard .r1{display:flex;align-items:center;gap:10px}
+  .ccard .nm{font-weight:700;font-size:15px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ccard .ph{color:var(--mut);font-size:13px;margin-top:2px}
+  .ccard .r2{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .ccard .meta{color:var(--mut);font-size:12px}
+  .ccard .cost{margin-left:auto;font-weight:700;font-size:14px;color:var(--amber2)}
+  .dtable{display:none}
+  @media(min-width:900px){
+    .mcards{display:none}
+    .dtable{display:block;width:100%;border-collapse:collapse;background:var(--card);
+      border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-size:14px}
+    .dtable th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;
+      text-transform:uppercase;letter-spacing:.4px;padding:12px 14px;border-bottom:1px solid var(--line)}
+    .dtable td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+    .dtable tr:last-child td{border-bottom:none}
+    .dtable tbody tr{cursor:pointer}
+    .dtable tbody tr:hover td{background:var(--card2)}
+  }
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap}
+  .p-qualified{background:var(--green-dim);color:var(--green)}
+  .p-callback{background:var(--blue-dim);color:var(--blue)}
+  .p-not_interested{background:var(--red-dim);color:var(--red)}
+  .p-no_answer,.p-other,.p-called{background:#232833;color:var(--mut)}
+  .p-new,.p-needs_enrichment{background:var(--amber-dim);color:var(--amber2)}
+  .btn{background:var(--amber);color:#141414;border:none;min-height:48px;padding:12px 20px;
+    border-radius:13px;font-weight:800;cursor:pointer;font-size:15px}
+  .btn:active{transform:scale(.97)}
   .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  .btn.sm{min-height:44px;padding:10px 16px;font-size:14px;border-radius:11px}
   .mut{color:var(--mut);font-size:13px}
-  /* modal */
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;padding:18px;z-index:50}
-  .overlay.open{display:flex}
-  .modal{background:var(--card);border:1px solid var(--line);border-radius:18px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:22px}
-  .modal h2{font-size:18px;margin-bottom:4px}
-  .summary{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14px;line-height:1.5}
-  .turns{display:flex;flex-direction:column;gap:8px;margin:12px 0}
-  .turn{max-width:85%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.55}
-  .turn.agent{align-self:flex-start;background:#2a2113;border:1px solid #4a3a1a}
-  .turn.lead{align-self:flex-end;background:#1c2b45;border:1px solid #2c4470}
+  .empty{text-align:center;color:var(--mut);padding:36px 16px;font-size:14px}
+  .actions{display:flex;gap:8px;margin-top:12px}
+  .actions .btn{flex:1}
+
+  /* ---------- bottom nav ---------- */
+  .bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:40;
+    background:rgba(15,18,25,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+    padding:6px 4px calc(8px + var(--sab));display:flex}
+  @media(min-width:900px){.bottomnav{display:none}}
+  .bnav{flex:1;border:none;background:transparent;color:var(--mut);cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    font-size:11px;font-weight:600;min-height:56px;justify-content:center;border-radius:12px}
+  .bnav .ic{font-size:21px}
+  .bnav.on{color:var(--amber2)}
+  .bnav:active{background:var(--card2)}
+
+  /* ---------- sheet (call detail) ---------- */
+  .sheet-wrap{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);
+    display:none;align-items:flex-end;justify-content:center}
+  .sheet-wrap.open{display:flex}
+  .sheet{background:var(--card);border:1px solid var(--line);border-bottom:none;
+    border-radius:24px 24px 0 0;width:100%;max-width:680px;max-height:92vh;max-height:92dvh;
+    overflow-y:auto;padding:14px 18px calc(20px + var(--sab));
+    animation:up .28s cubic-bezier(.2,.9,.3,1)}
+  @media(min-width:900px){
+    .sheet-wrap{align-items:center;padding:24px}
+    .sheet{border-radius:24px;border-bottom:1px solid var(--line);animation:pop .22s ease-out}
+  }
+  @keyframes up{from{transform:translateY(60px);opacity:.4}}
+  @keyframes pop{from{transform:scale(.96);opacity:.4}}
+  .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:2px auto 14px}
+  .sheet h2{font-size:18px}
+  .sheet .sub{color:var(--mut);font-size:13px;margin:4px 0 12px}
+  .summary{background:var(--card2);border:1px solid var(--line);border-radius:14px;
+    padding:13px 15px;margin:12px 0;font-size:14px;line-height:1.55}
+  .turns{display:flex;flex-direction:column;gap:9px;margin:12px 0 4px}
+  .turn{max-width:88%;padding:11px 15px;border-radius:16px;font-size:15px;line-height:1.6}
+  .turn.agent{align-self:flex-start;background:#2a2113;border:1px solid #4a3a1a;border-bottom-left-radius:6px}
+  .turn.lead{align-self:flex-end;background:#1c2b45;border:1px solid #2c4470;border-bottom-right-radius:6px}
   .turn .who{font-size:11px;color:var(--mut);margin-bottom:3px;font-weight:700}
-  audio{width:100%;margin-top:8px}
-  .close{float:right;background:transparent;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:6px 12px;cursor:pointer}
-  .addform{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;display:none;gap:10px;flex-wrap:wrap}
-  .addform.open{display:flex}
-  .addform input{background:var(--bg);border:1px solid var(--line);color:var(--txt);padding:9px 12px;border-radius:10px;font-size:14px}
-  footer{color:var(--mut);font-size:12px;text-align:center;margin-top:26px}
+  audio{width:100%;margin-top:10px;min-height:48px}
+  .closebtn{position:sticky;top:0;float:right;background:var(--card2);border:1px solid var(--line);
+    color:var(--txt);border-radius:12px;width:44px;height:44px;cursor:pointer;font-size:17px;z-index:2}
+
+  /* ---------- add form ---------- */
+  .form{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+  .form label{display:block;font-size:13px;font-weight:700;color:var(--mut);margin:14px 0 6px}
+  .form label:first-of-type{margin-top:0}
+  .form input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);
+    padding:14px;border-radius:13px;font-size:16px;min-height:52px}
+  .form input:focus{outline:none;border-color:var(--amber)}
+  .form .btn{width:100%;margin-top:18px}
+
+  /* ---------- skeleton ---------- */
+  .sk{position:relative;overflow:hidden;background:var(--card2);border-radius:10px;min-height:20px}
+  .sk::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
+    animation:sh 1.3s infinite}
+  @keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+  footer{color:var(--mut2);font-size:12px;text-align:center;margin:26px 0 6px}
+  .fab{position:fixed;right:16px;bottom:calc(96px + var(--sab));z-index:39;width:58px;height:58px;
+    border-radius:50%;border:none;background:linear-gradient(135deg,var(--amber),#d97a00);
+    font-size:26px;color:#141414;cursor:pointer;box-shadow:0 8px 22px rgba(245,166,35,.35)}
+  @media(min-width:900px){.fab{display:none}}
+  .fab:active{transform:scale(.93)}
 </style>
 </head>
 <body>
 
-<header>
-  <div class="brand">
-    <div class="logo">☀️</div>
-    <div>
-      <h1>AB Solar Power Systems</h1>
-      <p>Priya voice agent — leads, calls &amp; recordings</p>
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="logo">☀️</div>
+      <div style="min-width:0">
+        <h1>AB Solar</h1>
+        <p>Priya voice agent</p>
+      </div>
+      <span class="modebadge demo" id="modeBadge" style="margin-left:6px">…</span>
+    </div>
+    <nav class="desknav" id="deskNav">
+      <button class="dnav on" data-t="home">Home</button>
+      <button class="dnav" data-t="calls">Calls</button>
+      <button class="dnav" data-t="leads">Leads</button>
+      <button class="dnav" data-t="add">Add lead</button>
+    </nav>
+    <div class="top-actions">
+      <span class="balpill" id="balPill" title="Speko balance">₹…</span>
+      <span class="syncpill" id="syncPill"><span class="spin" id="syncSpin" style="display:none"></span><span id="syncTxt">…</span></span>
+      <button class="iconbtn" id="refreshBtn" title="Sync now">↻</button>
     </div>
   </div>
-  <div id="modeBadge"></div>
 </header>
 
-<div class="stats" id="stats"></div>
+<main>
+  <section id="v-home">
+    <div class="hero">
+      <div class="k">Speko balance · credits</div>
+      <div class="big" id="hBal">₹…</div>
+      <div class="sub" id="hBalSub">…</div>
+      <div class="warn" id="hBalWarn" style="display:none">⚠️ Balance running low — top up Speko so calling never stops mid-campaign.</div>
+    </div>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Call spend · last 14 days</h3>
+        <div class="hint">Cost of Priya's calls per day (₹)</div>
+        <div class="chart" id="spendChart"></div>
+      </div>
+      <div class="card">
+        <h3>Where the money goes</h3>
+        <div class="hint">Speko usage split by provider</div>
+        <div id="provSplit"></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Agent</h3>
+        <div class="hint">Voice agent configuration</div>
+        <div id="agentCard"></div>
+      </div>
+      <div class="card">
+        <h3>Recent calls</h3>
+        <div class="hint">Latest conversations</div>
+        <div id="recentCalls"></div>
+      </div>
+    </div>
+  </section>
 
-<div class="tabs">
-  <button class="tab on" onclick="showTab('leads')">Leads</button>
-  <button class="tab" onclick="showTab('calls')">Calls</button>
-  <button class="tab ghost" style="margin-left:auto" onclick="document.getElementById('addform').classList.toggle('open')">+ Add lead</button>
-</div>
+  <section id="v-calls" hidden>
+    <div class="toolbar"><input id="q" placeholder="Search name / phone…" autocomplete="off"></div>
+    <div class="chips" id="callChips"></div>
+    <div class="mcards" id="callsCards"></div>
+    <table class="dtable"><thead><tr><th>Time</th><th>Lead</th><th>Duration</th><th>Outcome</th><th>Cost</th><th></th></tr></thead><tbody id="callsBody"></tbody></table>
+    <div class="empty" id="callsEmpty" style="display:none">No calls match.</div>
+  </section>
 
-<div class="addform" id="addform">
-  <input id="f-name" placeholder="Name">
-  <input id="f-phone" placeholder="Phone (+91…)">
-  <input id="f-campaign" placeholder="Campaign">
-  <button class="btn" onclick="addLead()">Save lead</button>
-</div>
+  <section id="v-leads" hidden>
+    <div class="toolbar"><input id="q2" placeholder="Search name / phone…" autocomplete="off"></div>
+    <div class="chips" id="leadChips"></div>
+    <div class="mcards" id="leadsCards"></div>
+    <table class="dtable"><thead><tr><th>Lead</th><th>Phone</th><th>Source</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="leadsBody"></tbody></table>
+    <div class="empty" id="leadsEmpty" style="display:none">No leads match.</div>
+  </section>
 
-<div class="toolbar">
-  <input id="q" placeholder="Search name / phone…" oninput="render()">
-  <select id="f-outcome" onchange="render()">
-    <option value="">All outcomes</option>
-    <option value="qualified">Qualified</option>
-    <option value="callback">Callback</option>
-    <option value="not_interested">Not interested</option>
-    <option value="no_answer">No answer</option>
-    <option value="new">New</option>
-  </select>
-  <button class="btn ghost" onclick="load()">↻ Refresh</button>
-</div>
+  <section id="v-add" hidden>
+    <div class="form" style="max-width:520px">
+      <h3 style="margin-bottom:4px">Add a lead</h3>
+      <div class="mut" style="margin-bottom:6px">Saved instantly. Priya can call them from the Calls tab.</div>
+      <label for="f-name">Name</label>
+      <input id="f-name" placeholder="e.g. Srinivas Rao" autocomplete="off">
+      <label for="f-phone">Phone</label>
+      <input id="f-phone" placeholder="+91…" inputmode="tel" autocomplete="off">
+      <label for="f-campaign">Campaign <span class="mut">(optional)</span></label>
+      <input id="f-campaign" placeholder="e.g. Rooftop Solar – Miyapur" autocomplete="off">
+      <button class="btn" id="addBtn">Save lead</button>
+    </div>
+  </section>
+</main>
 
-<div id="leadsWrap"><table>
-  <thead><tr><th>Lead</th><th>Phone</th><th>Source</th><th>Campaign</th><th>Received</th><th>Status</th></tr></thead>
-  <tbody id="leadsBody"></tbody>
-</table></div>
+<button class="fab" id="fab" title="Add lead">＋</button>
 
-<div id="callsWrap" style="display:none"><table>
-  <thead><tr><th>Time</th><th>Lead</th><th>Duration</th><th>Outcome</th><th>Cost</th><th></th></tr></thead>
-  <tbody id="callsBody"></tbody>
-</table></div>
+<nav class="bottomnav" id="bottomNav">
+  <button class="bnav on" data-t="home"><span class="ic">🏠</span>Home</button>
+  <button class="bnav" data-t="calls"><span class="ic">📞</span>Calls</button>
+  <button class="bnav" data-t="leads"><span class="ic">👥</span>Leads</button>
+  <button class="bnav" data-t="add"><span class="ic">➕</span>Add</button>
+</nav>
 
-<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <button class="close" onclick="closeModal()">✕</button>
+<div class="sheet-wrap" id="sheetWrap">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="grab"></div>
+    <button class="closebtn" id="sheetClose">✕</button>
     <h2 id="m-title">Call detail</h2>
-    <div class="mut" id="m-sub"></div>
-    <div class="summary" id="m-summary"></div>
+    <div class="sub" id="m-sub"></div>
+    <div id="m-pill"></div>
+    <div class="summary" id="m-summary" style="display:none"></div>
+    <div id="m-cost"></div>
     <div id="m-audio"></div>
     <div class="turns" id="m-turns"></div>
   </div>
@@ -129,83 +340,280 @@
 <footer>Built by REvorax for AB Solar Power Systems · Gachibowli, Hyderabad</footer>
 
 <script>
-let LEADS=[], CALLS=[], DEMO=true, tab='leads';
-const PILL={qualified:'p-qualified',callback:'p-callback',not_interested:'p-not_interested',no_answer:'p-no_answer',new:'p-new',called:'p-other',other:'p-other',needs_enrichment:'p-new'};
-const LABEL={qualified:'Qualified',callback:'Callback',not_interested:'Not interested',no_answer:'No answer',new:'New',called:'Called',other:'—',needs_enrichment:'Incoming…'};
+"use strict";
+const $=id=>document.getElementById(id);
+let LEADS=[],CALLS=[],DAILY=[],BILL=null,AGENT=null,NUMBERS=[],DEMO=true,tab='home';
+let callFilter='',leadFilter='',q='',q2='';
+const PILL={qualified:'p-qualified',callback:'p-callback',not_interested:'p-not_interested',
+  no_answer:'p-no_answer',new:'p-new',called:'p-called',other:'p-other',
+  needs_enrichment:'p-needs_enrichment',connected:'p-callback'};
+const LABEL={qualified:'Qualified',callback:'Callback',not_interested:'Not interested',
+  no_answer:'No answer',new:'New',called:'Called',other:'—',needs_enrichment:'Incoming',
+  connected:'Connected'};
+const MLABEL={session_seconds:'Phone line',tts_characters:'Voice (TTS)',stt_seconds:'Speech-to-text',
+  llm_tokens:'AI brain (LLM)',post_call_analysis_tokens:'Call analysis'};
 
+const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const inr=n=>('₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:n<100?1:0}));
+const fmtDur=s=>{s=+s||0;return s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s'};
+const fmtTime=t=>{if(!t)return '—';const d=new Date(t);
+  return isNaN(d)?'—':d.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})};
+const timeAgo=t=>{if(!t)return '';const s=(Date.now()-new Date(t))/1e3;
+  if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'};
+const pill=st=>{st=st||'other';return `<span class="pill ${PILL[st]||'p-other'}">${LABEL[st]||esc(st)}</span>`};
+async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error(p+' '+r.status);return r.json()}
+
+/* ---------------- skeleton ---------------- */
+function skeleton(){
+  $('statsGrid').innerHTML='<div class="sk" style="min-height:92px"></div>'.repeat(4);
+  $('spendChart').innerHTML='<div class="sk" style="height:130px"></div>';
+  $('provSplit').innerHTML='<div class="sk" style="height:120px"></div>';
+  $('agentCard').innerHTML='<div class="sk" style="height:110px"></div>';
+  $('recentCalls').innerHTML='<div class="sk" style="height:150px"></div>';
+}
+
+/* ---------------- load ---------------- */
+async function safe(p,fb){try{return await api(p)}catch(e){return fb}}
 async function load(){
-  const h=await (await fetch('/api/health')).json();
+  skeleton();
+  let h; try{ h=await api('/api/health'); }catch(e){
+    $('statsGrid').innerHTML='<div class="empty">Could not reach the server. Tap ↻ to retry.</div>';return; }
   DEMO=h.demo_mode;
-  document.getElementById('modeBadge').innerHTML = DEMO
-    ? '<span class="demo-badge">DEMO DATA</span>'
-    : '<span class="live-badge">● LIVE</span>';
-  const s=await (await fetch('/api/stats')).json();
-  document.getElementById('stats').innerHTML=`
+  const mb=$('modeBadge');
+  mb.textContent=DEMO?'DEMO DATA':'● LIVE'; mb.className='modebadge '+(DEMO?'demo':'live');
+  const [s,b,le,ca,da,ag,nu]=await Promise.all([
+    safe('/api/stats',null),safe('/api/billing',null),safe('/api/leads',[]),
+    safe('/api/calls',[]),safe('/api/usage/daily',[]),safe('/api/agent',null),
+    safe('/api/numbers',[])]);
+  if(!s){ $('statsGrid').innerHTML='<div class="empty">Could not load data. Tap ↻ to retry.</div>';return; }
+  BILL=b;LEADS=le;CALLS=ca;DAILY=da;AGENT=ag;NUMBERS=nu;
+  renderAll(s); setSyncPill(h);
+  // background sync: fresh Speko data without blocking the UI
+  if(!DEMO){ try{ await fetch('/api/sync',{method:'POST'}); }catch(e){} pollSync(); }
+}
+async function pollSync(){
+  for(let i=0;i<40;i++){
+    await new Promise(r=>setTimeout(r,4000));
+    try{ const st=await api('/api/sync/status'); setSyncPill(st);
+      if(!st.running){
+        const [s,ca,da]=await Promise.all([api('/api/stats'),api('/api/calls'),api('/api/usage/daily')]);
+        CALLS=ca;DAILY=da;renderAll(s);return;
+      }
+    }catch(e){return}
+  }
+}
+function setSyncPill(st){
+  const running=st.sync_running||st.running;
+  $('syncSpin').style.display=running?'':'none';
+  const ls=st.last_sync;
+  $('syncTxt').textContent=running?'Syncing…':(ls?('Synced '+timeAgo(ls)):'Not synced yet');
+}
+async function manualSync(){
+  $('syncSpin').style.display='';$('syncTxt').textContent='Syncing…';
+  try{await fetch('/api/sync',{method:'POST'})}catch(e){}
+  pollSync();
+}
+
+function renderAll(s){
+  // balance hero
+  const bal=BILL?BILL.balance_inr:0;
+  $('hBal').textContent=inr(bal);
+  const bp=$('balPill'); bp.textContent=inr(bal);
+  bp.classList.toggle('low',bal<1000);
+  const spent=BILL?(BILL.total_cost_inr||0):0;
+  const perCall=s.calls?spent/s.calls:0;
+  const worthLeft=perCall>0?Math.floor(bal/perCall):'—';
+  $('hBalSub').textContent=`≈ $${(BILL?BILL.balance_usd:0).toFixed(2)} · ${spent?inr(spent)+' spent so far':'no spend yet'}`+
+    (worthLeft==='—'?'':` · roughly ${worthLeft} calls left`);
+  $('hBalWarn').style.display=(bal>0&&bal<1000)?'':'none';
+  // stats
+  $('statsGrid').innerHTML=`
     <div class="stat"><div class="v">${s.leads}</div><div class="l">Leads</div></div>
     <div class="stat"><div class="v">${s.calls}</div><div class="l">Calls placed</div></div>
     <div class="stat"><div class="v">${s.connected}</div><div class="l">Connected</div></div>
-    <div class="stat q"><div class="v">${s.qualified}</div><div class="l">Qualified</div></div>
+    <div class="stat q"><div class="v">${s.qualified}</div><div class="l">Qualified ✅</div></div>
     <div class="stat"><div class="v">${fmtDur(s.avg_duration_s)}</div><div class="l">Avg call</div></div>
-    <div class="stat s"><div class="v">₹${s.spend_inr}</div><div class="l">Call spend</div></div>`;
-  LEADS=await (await fetch('/api/leads')).json();
-  CALLS=await (await fetch('/api/calls')).json();
-  render();
+    <div class="stat s"><div class="v">${inr(s.spend_inr)}</div><div class="l">Call spend</div></div>`;
+  renderChart(); renderSplit(); renderAgent(); renderRecent(); renderCalls(); renderLeads();
 }
-function fmtDur(s){s=+s||0;return s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s'}
-function fmtTime(t){if(!t)return '—';const d=new Date(t);return d.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}
-function pill(st){st=st||'other';return `<span class="pill ${PILL[st]||'p-other'}">${LABEL[st]||st}</span>`}
 
-function showTab(t){tab=t;
-  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
-  event.target.classList.add('on');
-  document.getElementById('leadsWrap').style.display=t==='leads'?'':'none';
-  document.getElementById('callsWrap').style.display=t==='calls'?'':'none';
+function renderChart(){
+  const max=Math.max(1,...DAILY.map(d=>d.cost_inr));
+  $('spendChart').innerHTML=DAILY.map(d=>{
+    const h=Math.max(3,Math.round(d.cost_inr/max*104));
+    const day=new Date(d.day+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+    return `<div class="col" title="${day}: ${inr(d.cost_inr)} · ${d.calls} calls">
+      <div class="cv">${d.cost_inr?inr(d.cost_inr):''}</div>
+      <div class="cb" style="height:${h}px"></div><div class="cd">${day.split(' ')[0]}</div></div>`;
+  }).join('');
 }
-function render(){
-  const q=document.getElementById('q').value.toLowerCase();
-  const fo=document.getElementById('f-outcome').value;
-  const lb=document.getElementById('leadsBody'); lb.innerHTML='';
-  LEADS.filter(l=>(l.name+' '+l.phone).toLowerCase().includes(q)&&(!fo||l.status===fo||l.last_outcome===fo))
-    .forEach(l=>{const tr=document.createElement('tr');
-      tr.innerHTML=`<td><b>${esc(l.name)||'—'}</b></td><td>${esc(l.phone)||'<span class=mut>pending</span>'}</td>
-        <td class="mut">${esc(l.source)}</td><td class="mut">${esc(l.campaign)}</td>
-        <td class="mut">${fmtTime(l.created_at)}</td><td>${pill(l.last_outcome||l.status)}</td>`;
-      lb.appendChild(tr);});
-  const cb=document.getElementById('callsBody'); cb.innerHTML='';
-  CALLS.filter(c=>((c.lead_name||'')+' '+(c.to_number||'')).toLowerCase().includes(q)&&(!fo||c.outcome===fo))
-    .forEach(c=>{const tr=document.createElement('tr');
-      const cost='₹'+((+c.cost_usd||0)*88).toFixed(1);
-      tr.innerHTML=`<td class="mut">${fmtTime(c.started_at)}</td>
-        <td><b>${esc(c.lead_name)||'—'}</b><div class="mut">${esc(c.to_number)}</div></td>
-        <td>${fmtDur(c.duration_seconds)}</td><td>${pill(c.outcome)}</td><td class="mut">${cost}</td>
-        <td><button class="btn ghost" onclick="openCall('${c.id}')">View</button></td>`;
-      cb.appendChild(tr);});
+function renderSplit(){
+  const bd=(BILL&&BILL.breakdown)||[];
+  if(!bd.length){$('provSplit').innerHTML='<div class="mut">No usage data yet.</div>';return}
+  const max=Math.max(1,...bd.map(b=>b.cost_usd));
+  const cls=['','g','b','v'];
+  $('provSplit').innerHTML=bd.slice(0,6).map((b,i)=>
+    `<div class="bar-row"><div class="bl">${esc(b.label||b.provider)}</div>
+     <div class="bar-track"><div class="bar-fill ${cls[i%4]}" style="width:${Math.max(4,Math.round(b.cost_usd/max*100))}%"></div></div>
+     <div class="bv">${inr(b.cost_inr)}</div></div>`).join('');
 }
-function esc(s){return String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+function renderAgent(){
+  const num=(NUMBERS&&NUMBERS[0]&&NUMBERS[0].e164)||'—';
+  $('agentCard').innerHTML=`
+    <div class="agentrow"><div class="avatar">🎙️</div>
+      <div><div class="nm">${esc((AGENT&&AGENT.name)||'Priya')}</div>
+      <div class="mt">${esc((AGENT&&AGENT.language)||'Telugu')} outbound · ${esc(num)}</div></div></div>
+    <div style="margin-top:10px">
+      <div class="kv"><span class="k">Caller ID</span><span class="v">${esc(num)}</span></div>
+      <div class="kv"><span class="k">AI brain</span><span class="v">${esc((AGENT&&AGENT.llm)||'—')}</span></div>
+      <div class="kv"><span class="k">Voice</span><span class="v">${esc((AGENT&&AGENT.tts)||'—')}</span></div>
+    </div>`;
+}
+function renderRecent(){
+  const rc=CALLS.slice(0,5);
+  $('recentCalls').innerHTML=rc.length?rc.map(c=>
+    `<div class="ccard" style="margin-bottom:8px" onclick="openCall('${c.id}')">
+      <div class="r1"><div class="nm">${esc(c.lead_name||c.to_number||'Call')}</div>${pill(c.outcome)}</div>
+      <div class="r2"><span class="meta">${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)}</span>
+      <span class="cost">${inr((+c.cost_usd||0)*88)}</span></div></div>`).join('')
+    :'<div class="mut">No calls yet — they appear here after Priya dials.</div>';
+}
+
+/* ---------------- tabs ---------------- */
+function showTab(t){
+  tab=t;
+  document.querySelectorAll('.bnav').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.querySelectorAll('.dnav').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  ['home','calls','leads','add'].forEach(x=>$('v-'+x).hidden=x!==t);
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('.bnav,.dnav').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.t)));
+$('fab').addEventListener('click',()=>showTab('add'));
+$('refreshBtn').addEventListener('click',manualSync);
+$('sheetClose').addEventListener('click',closeSheet);
+$('sheetWrap').addEventListener('click',e=>{if(e.target===$('sheetWrap'))closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+
+/* ---------------- calls ---------------- */
+const OUTCOMES=['qualified','callback','not_interested','no_answer'];
+function renderChips(){
+  $('callChips').innerHTML=`<button class="chip${callFilter?'':' on'}" data-f="">All</button>`+
+    OUTCOMES.map(o=>`<button class="chip${callFilter===o?' on':''}" data-f="${o}">${LABEL[o]}</button>`).join('');
+  $('callChips').querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{callFilter=c.dataset.f;renderChips();renderCalls()}));
+  $('leadChips').innerHTML=`<button class="chip${leadFilter?'':' on'}" data-f="">All</button>`+
+    ['new','qualified','callback','not_interested','called'].map(o=>
+      `<button class="chip${leadFilter===o?' on':''}" data-f="${o}">${LABEL[o]||o}</button>`).join('');
+  $('leadChips').querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{leadFilter=c.dataset.f;renderChips();renderLeads()}));
+}
+function filteredCalls(){
+  return CALLS.filter(c=>((c.lead_name||'')+' '+(c.to_number||'')).toLowerCase().includes(q)
+    &&(!callFilter||(c.outcome||'')===callFilter));
+}
+function renderCalls(){
+  const list=filteredCalls();
+  $('callsEmpty').style.display=list.length?'none':'';
+  $('callsCards').innerHTML=list.map(c=>
+    `<div class="ccard" onclick="openCall('${c.id}')">
+      <div class="r1"><div class="nm">${esc(c.lead_name||'Unknown')}</div>${pill(c.outcome)}</div>
+      <div class="ph">${esc(c.to_number||'')}</div>
+      <div class="r2"><span class="meta">${fmtTime(c.started_at)}</span>
+        <span class="meta">·</span><span class="meta">${fmtDur(c.duration_seconds)}</span>
+        ${c.has_recording?'<span class="meta">🎧 recording</span>':''}
+        <span class="cost">${inr((+c.cost_usd||0)*88)}</span></div></div>`).join('');
+  $('callsBody').innerHTML=list.map(c=>
+    `<tr onclick="openCall('${c.id}')"><td class="mut">${fmtTime(c.started_at)}</td>
+     <td><b>${esc(c.lead_name||'—')}</b><div class="mut">${esc(c.to_number||'')}</div></td>
+     <td>${fmtDur(c.duration_seconds)}</td><td>${pill(c.outcome)}</td>
+     <td class="mut">${inr((+c.cost_usd||0)*88)}</td>
+     <td><button class="btn ghost sm">View</button></td></tr>`).join('');
+}
+$('q').addEventListener('input',e=>{q=e.target.value.toLowerCase();renderCalls()});
+$('q2').addEventListener('input',e=>{q2=e.target.value.toLowerCase();renderLeads()});
+
+/* ---------------- leads ---------------- */
+function filteredLeads(){
+  return LEADS.filter(l=>(l.name+' '+l.phone).toLowerCase().includes(q2)
+    &&(!leadFilter||l.status===leadFilter||l.last_outcome===leadFilter));
+}
+function waLink(l){
+  const ph=String(l.phone||'').replace(/\D/g,'');
+  if(ph.length<10)return '';
+  const msg=encodeURIComponent(`Namaste ${(l.name||'').split(' ')[0]||''} garu, AB Solar Power Systems nundi. Mee solar enquiry gurinchi matladalani call chesamu.`);
+  return `https://wa.me/91${ph.slice(-10)}?text=${msg}`;
+}
+function renderLeads(){
+  const list=filteredLeads();
+  $('leadsEmpty').style.display=list.length?'none':'';
+  $('leadsCards').innerHTML=list.map(l=>{
+    const wa=waLink(l), tel=l.phone?`tel:${esc(l.phone)}`:'';
+    return `<div class="ccard">
+      <div class="r1"><div class="nm">${esc(l.name)||'—'}</div>${pill(l.last_outcome||l.status)}</div>
+      <div class="ph">${esc(l.phone)||'<span class="mut">phone pending</span>'} · ${esc(l.source||'')}</div>
+      ${l.campaign?`<div class="ph">${esc(l.campaign)}</div>`:''}
+      <div class="r2"><span class="meta">${l.last_call_at?('Last call '+fmtTime(l.last_call_at)):('Added '+fmtTime(l.created_at))}</span></div>
+      <div class="actions">
+        ${tel?`<a class="btn sm ghost" style="text-decoration:none;text-align:center" href="${tel}">📞 Call</a>`:''}
+        ${wa?`<a class="btn sm ghost" style="text-decoration:none;text-align:center" href="${wa}" target="_blank" rel="noopener">💬 WhatsApp</a>`:''}
+      </div></div>`}).join('');
+  $('leadsBody').innerHTML=list.map(l=>{
+    const wa=waLink(l), tel=l.phone?`tel:${esc(l.phone)}`:'';
+    return `<tr><td><b>${esc(l.name)||'—'}</b><div class="mut">${esc(l.campaign||'')}</div></td>
+     <td>${esc(l.phone)||'<span class="mut">pending</span>'}</td>
+     <td class="mut">${esc(l.source||'')}</td><td class="mut">${fmtTime(l.created_at)}</td>
+     <td>${pill(l.last_outcome||l.status)}</td>
+     <td style="white-space:nowrap">${tel?`<a class="btn ghost sm" style="text-decoration:none" href="${tel}">📞</a>`:''}
+       ${wa?` <a class="btn ghost sm" style="text-decoration:none" href="${wa}" target="_blank" rel="noopener">💬</a>`:''}</td></tr>`}).join('');
+}
+
+/* ---------------- call detail sheet ---------------- */
 async function openCall(id){
-  const c=await (await fetch('/api/calls/'+encodeURIComponent(id))).json();
-  document.getElementById('m-title').textContent=(c.lead_name||c.to_number||'Call');
-  document.getElementById('m-sub').textContent=`${c.to_number||''} · ${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)} · ₹${((+c.cost_usd||0)*88).toFixed(1)}`;
-  document.getElementById('m-summary').innerHTML=`${pill(c.outcome)}<div style="margin-top:8px">${esc(c.summary)||'<span class=mut>No summary yet.</span>'}</div>`;
-  document.getElementById('m-audio').innerHTML = c.has_recording
-    ? `<audio controls preload="none" src="/api/calls/${encodeURIComponent(id)}/recording"></audio>`
-    : `<div class="mut">No recording for this call.</div>`;
-  const box=document.getElementById('m-turns'); box.innerHTML='';
-  (c.transcript||[]).forEach(t=>{const d=document.createElement('div');
-    d.className='turn '+t.speaker;
-    d.innerHTML=`<div class="who">${t.speaker==='agent'?'Priya':'Lead'}</div>${esc(t.text)}`;
-    box.appendChild(d);});
-  if(!(c.transcript||[]).length) box.innerHTML='<div class="mut">Transcript not available.</div>';
-  document.getElementById('overlay').classList.add('open');
+  $('sheetWrap').classList.add('open');document.body.style.overflow='hidden';
+  $('m-title').textContent='Loading…';$('m-sub').textContent='';
+  $('m-pill').innerHTML='';$('m-turns').innerHTML='<div class="sk" style="height:120px"></div>';
+  $('m-audio').innerHTML='';$('m-cost').innerHTML='';$('m-summary').style.display='none';
+  try{
+    const c=await api('/api/calls/'+encodeURIComponent(id));
+    $('m-title').textContent=c.lead_name||c.to_number||'Call';
+    $('m-sub').textContent=`${c.to_number||''} · ${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)}`;
+    $('m-pill').innerHTML=pill(c.outcome);
+    const usage=(c.usage||[]).filter(u=>u.cost>0);
+    $('m-cost').innerHTML=`<div class="kv" style="border:none;padding:6px 0">
+      <span class="k">This call cost</span><span class="v">${inr((+c.cost_usd||0)*88)}</span></div>`+
+      (usage.length?`<div class="mut" style="margin-bottom:8px">`+usage.map(u=>
+        `${esc(MLABEL[u.metric]||u.metric)} ${inr(u.cost*88)}`).join(' · ')+`</div>`:'');
+    $('m-audio').innerHTML=c.has_recording
+      ?`<audio controls preload="none" src="/api/calls/${encodeURIComponent(id)}/recording"></audio>`
+      :`<div class="mut">No recording for this call.</div>`;
+    const box=$('m-turns');box.innerHTML='';
+    (c.transcript||[]).forEach(t=>{const d=document.createElement('div');
+      d.className='turn '+t.speaker;
+      d.innerHTML=`<div class="who">${t.speaker==='agent'?'Priya 🎙️':'Lead'}</div>${esc(t.text)}`;
+      box.appendChild(d)});
+    if(!(c.transcript||[]).length)box.innerHTML='<div class="mut">Transcript not available.</div>';
+  }catch(e){$('m-title').textContent='Could not load call';$('m-turns').innerHTML=''}
 }
-function closeModal(){document.getElementById('overlay').classList.remove('open')}
+function closeSheet(){$('sheetWrap').classList.remove('open');document.body.style.overflow='';
+  const a=$('m-audio').querySelector('audio');if(a)a.pause()}
+
+/* ---------------- add lead ---------------- */
 async function addLead(){
-  const body={name:document.getElementById('f-name').value,phone:document.getElementById('f-phone').value,
-    campaign:document.getElementById('f-campaign').value,source:'manual'};
-  const r=await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(r.ok){document.getElementById('addform').classList.remove('open');load();}
-  else alert('Could not save — check the phone number.');
+  const name=$('f-name').value.trim(),phone=$('f-phone').value.trim(),campaign=$('f-campaign').value.trim();
+  if(phone.replace(/\D/g,'').length<10){alert('Please enter a valid phone number.');return}
+  $('addBtn').disabled=true;$('addBtn').textContent='Saving…';
+  try{
+    const r=await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,phone,campaign,source:'manual'})});
+    if(!r.ok)throw new Error();
+    $('f-name').value=$('f-phone').value=$('f-campaign').value='';
+    const [le,s]=await Promise.all([api('/api/leads'),api('/api/stats')]);
+    LEADS=le;renderLeads();renderAll(s);showTab('leads');
+  }catch(e){alert('Could not save — check the phone number.')}
+  $('addBtn').disabled=false;$('addBtn').textContent='Save lead';
 }
+$('addBtn').addEventListener('click',addLead);
+
+renderChips();
 load();
 </script>
 </body>
