@@ -98,7 +98,7 @@ button.brandmark{cursor:pointer}
 .bnav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:40;
   background:var(--surface);border-top:1px solid var(--border);
   padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-  grid-template-columns:repeat(6,1fr)}
+  grid-template-columns:repeat(7,1fr)}
 .bnav button{border:0;background:none;display:flex;flex-direction:column;
   align-items:center;gap:3px;font-size:9px;font-weight:700;color:var(--text-2);
   padding:6px 0;letter-spacing:.02em}
@@ -449,6 +449,7 @@ ol.steps b{color:var(--ink);font-weight:600}
   <button data-v="calls"><i data-ic="phone"></i>Calls</button>
   <button data-v="agent"><i data-ic="sliders"></i>Agent</button>
   <button data-v="tasks"><i data-ic="tasks"></i>Tasks</button>
+  <button data-v="integrations"><i data-ic="link"></i>Meta</button>
 </nav>
 
 <!-- drawer -->
@@ -481,7 +482,7 @@ ol.steps b{color:var(--ink);font-weight:600}
   <div class="scrim show" onclick="closeModal('coModal')"></div>
   <div class="mbox">
     <h3>Companies</h3>
-    <div class="msub">Each company has its own leads, pipeline, agent and billing.</div>
+    <div class="msub">Each company has its own leads, pipeline and agent. Call credits come from your one shared Speko balance.</div>
     <div id="coList"></div>
   </div>
 </div>
@@ -539,6 +540,7 @@ cal:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2
 wallet:'<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
 dash:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
 kanban:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9.5" y1="3" x2="9.5" y2="21"/><line x1="14.5" y1="3" x2="14.5" y2="21"/>',
+ban:'<circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>',
 tasks:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
 play:'<polygon points="5 3 19 12 5 21 5 3"/>',
 mic:'<rect x="9" y="2" width="6" height="12" rx="3" ry="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/>',
@@ -555,6 +557,7 @@ function hydrateIcons(root){(root||document).querySelectorAll('[data-ic]').forEa
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const inr=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+let FX=88; // USD->INR, refreshed from /api/health at boot
 const mmss=s=>{s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 const fdate=iso=>{if(!iso)return'—';const d=new Date(iso);return d.toLocaleDateString('en-IN',{day:'numeric',month:'short'})+', '+d.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})};
 const fday=iso=>{if(!iso)return'—';return new Date(iso).toLocaleDateString('en-IN',{day:'numeric',month:'short'})};
@@ -728,7 +731,7 @@ async function renderPipe(){
           <div class="kcard ${kcardClass(l.last_activity_at)}" onclick="openLead(${l.id})">
             <div class="kn">${esc(l.name||'(no name)')}</div>
             <div class="kp">${esc(l.phone||'')}</div>
-            <div class="krow">${scoreBadge(l.score)}<span class="agebadge">${ageOf(l.last_activity_at)}${l.follow_up_at?' · cb '+fday(l.follow_up_at):''}</span></div>
+            <div class="krow">${scoreBadge(l.score)}<span class="agebadge">${ageOf(l.last_activity_at)}${l.next_followup_at?' · cb '+fday(l.next_followup_at):''}</span></div>
           </div>`).join('')||'<div class="small" style="padding:8px 4px">Empty</div>'}
         </div>
       </div>`}).join('');
@@ -802,6 +805,7 @@ function drawLeadDrawer(){
       <button class="btn primary sm" onclick="quickDial(${d.id})" ${d.dnc?'disabled':''}>${ic('phone',14)} Call now</button>
       <a class="btn sm" target="_blank" href="https://wa.me/${waNum(d.phone)}">${ic('msg',14)} WhatsApp</a>
       <button class="btn sm" onclick="notePrompt()">${ic('plus',14)} Note</button>
+      <button class="btn sm" onclick="toggleDnc()">${ic('ban',14)} ${d.dnc?'Unmark DNC':'Mark DNC'}</button>
     </div>
     <div class="dtabs">${['timeline','calls','notes','tasks'].map(t=>`<button class="${DTAB===t?'on':''}" onclick="setDTab('${t}')">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`;
   const body=$('dbody');
@@ -819,7 +823,7 @@ function drawLeadDrawer(){
     body.innerHTML=d.calls.length?d.calls.map(c=>`
       <div class="taskrow" onclick="openCall('${c.id}')" style="cursor:pointer">
         <div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc((DISP_LABEL[c.disposition]||c.outcome||'Call').replace(/_/g,' '))}</div>
-        <div class="small">${mmss(c.duration_seconds)} · ${c.cost_usd?inr(c.cost_usd*83):'—'} · ${fdate(c.started_at)}</div>
+        <div class="small">${mmss(c.duration_seconds)} · ${c.cost_usd?inr(c.cost_usd*FX):'—'} · ${fdate(c.started_at)}</div>
         ${c.summary?`<div class="small mt8">${esc(c.summary)}</div>`:''}</div>
         ${ic('chev-r',15)}</div>`).join('')
       :`<div class="empty"><div class="et">No calls yet.</div><p>Tap “Call now” to dial this lead.</p></div>`;
@@ -840,6 +844,12 @@ async function moveStage(){
   toast('Moved to '+STAGE_LABEL[s]);openLead(LD.id);go(VIEW);
 }
 async function notePrompt(){DTAB='notes';drawLeadDrawer();setTimeout(()=>$('nnote').focus(),100)}
+async function toggleDnc(){
+  const to=!LD.dnc;
+  if(to&&!confirm('Mark this lead Do-Not-Call? Priya will never auto-dial them again.'))return;
+  await api(`/api/leads/${LD.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({dnc:to?1:0})});
+  toast(to?'Marked do-not-call':'DNC removed');openLead(LD.id);
+}
 async function addNote(){
   const b=$('nnote').value.trim();if(!b)return;
   await api(`/api/leads/${LD.id}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:b})});
@@ -879,7 +889,7 @@ async function renderCalls(){
       <td>${c.disposition?`<span class="pill ${c.disposition.startsWith('qualified')?'p-green':c.disposition.startsWith('not_interested')||c.disposition==='dnc'?'p-red':'p-grey'}">${esc(DISP_LABEL[c.disposition]||c.disposition)}</span>`:`<span class="small">${esc((c.outcome||'—').replace(/_/g,' '))}</span>`}</td>
       <td>${c.intent_verdict?`<span class="pill ${INTENT_PILL[c.intent_verdict]||'p-grey'}">${INTENT_LABEL[c.intent_verdict]||c.intent_verdict}</span>`:'<span class="small">—</span>'}</td>
       <td class="r mono">${mmss(c.duration_seconds)}</td>
-      <td class="r mono">${c.cost_usd?inr(c.cost_usd*83):'—'}</td>
+      <td class="r mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</td>
       <td class="r small">${ageOf(c.started_at)}</td>
       <td class="r"><button class="iconbtn" onclick="event.stopPropagation();openCall('${c.id}')">${ic('chev-r',15)}</button></td>
     </tr>`).join('')||`<tr><td colspan="7" class="empty"><div class="et">No calls yet.</div></td></tr>`;
@@ -913,7 +923,7 @@ async function openCall(id){
     ${c.summary?`<div class="ana"><div class="ak">Speko call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
     ${intent!=='unknown'?`<div class="ana"><div class="ak">Intent <span class="src-tag">· detected by dashboard</span></div>
       <div class="av"><span class="pill ${INTENT_PILL[intent]}" style="font-size:13px">${INTENT_LABEL[intent]}</span>
-      ${c.talk_ratio!=null?`<div class="small mt8">AI talked ${Math.round(c.talk_ratio*100)}% of the call</div><div class="talkbar"><i style="width:${Math.round(c.talk_ratio*100)}%"></i></div>`:''}</div></div>`:''}
+      ${c.talk_ratio!=null?`<div class="small mt8">Lead talked ${Math.round(c.talk_ratio*100)}% of the call</div><div class="talkbar"><i style="width:${Math.round(c.talk_ratio*100)}%"></i></div>`:''}</div></div>`:''}
     ${factRows?`<div class="ana"><div class="ak">Extracted facts <span class="src-tag">· from speko report</span></div><div class="factgrid">${factRows}</div></div>`:''}
     ${objs.length?`<div class="ana"><div class="ak">Objections raised <span class="src-tag">· detected by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap">${objs.map(o=>`<span class="pill p-amber">${esc(o)}</span>`).join('')}</div></div>`:''}
     ${c.next_action?`<div class="ana"><div class="ak">Suggested next action <span class="src-tag">· detected by dashboard</span></div>
@@ -928,9 +938,9 @@ async function openCall(id){
     <button class="btn sm primary" onclick="saveDisposition()">Save</button></div>
     <hr class="hr">
     <h3 style="font-size:13px;font-weight:700;margin-bottom:12px">Transcript</h3>
-    ${tr.length?`<div class="tr">${tr.map(t=>`<div class="bub ${t.who==='agent'?'agent':'lead'}">${esc(t.text)}</div>`).join('')}</div>`:'<div class="small">No transcript captured.</div>'}
+    ${tr.length?`<div class="tr">${tr.map(t=>`<div class="bub ${t.speaker==='agent'?'agent':'lead'}">${esc(t.text)}</div>`).join('')}</div>`:'<div class="small">No transcript captured.</div>'}
     <hr class="hr">
-    <div class="small">Cost: <span class="mono">${c.cost_usd?inr(c.cost_usd*83):'—'}</span>${c.cost_breakdown_usd?' · see billing':''}</div>`;
+    <div class="small">Cost: <span class="mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</span>${c.cost_breakdown_usd?' · see billing':''}</div>`;
   hydrateIcons($('drawer'));
 }
 async function saveDisposition(){
@@ -1043,9 +1053,12 @@ async function renderIntegrations(){
     $('metaBody').innerHTML=`
       <div class="arow"><span class="ak">Webhook URL</span><span class="av mono" style="font-size:11px;word-break:break-all">${esc(m.webhook_url)}</span></div>
       <div class="arow"><span class="ak">Verify token</span><span class="av">${m.verify_token_set?'<span class="pill p-green">Set on server</span>':'<span class="pill p-red">Not set — add FB_VERIFY_TOKEN on Render</span>'}</span></div>
+      <div class="arow"><span class="ak">Webhook signature</span><span class="av">${m.app_secret_set?'<span class="pill p-green">Verified</span>':'<span class="pill p-amber">Unverified — paste the app secret below</span>'}</span></div>
       <div class="arow"><span class="ak">Auto-dials today</span><span class="av"><b>${m.auto_dials_today}</b> / ${m.daily_cap} cap</span></div>
       <div class="frow"><label class="fld">Page access token — lets the dashboard pull name &amp; phone from Meta</label>
         <input id="metaTok" type="password" class="ctl mono" style="width:100%" placeholder="${m.connected?'Saved — paste a new token to replace it':'Paste Page access token'}" autocomplete="off"></div>
+      <div class="frow"><label class="fld">App secret — verifies every webhook came from Meta (recommended)</label>
+        <input id="metaSec" type="password" class="ctl mono" style="width:100%" placeholder="${m.app_secret_set?'Saved':'Paste Meta app secret'}" autocomplete="off"></div>
       <div class="grid2" style="gap:12px">
         <div class="frow"><label class="fld">Daily auto-dial cap</label>
           <input id="metaCap" type="number" class="ctl" style="width:100%" min="1" max="500" value="${m.daily_cap}"></div>
@@ -1067,6 +1080,8 @@ async function saveMeta(){
   const body={autodial:$('metaAuto').checked,daily_cap:parseInt($('metaCap').value,10)||50};
   const tok=$('metaTok').value.trim();
   if(tok)body.page_token=tok;
+  const sec=$('metaSec').value.trim();
+  if(sec)body.app_secret=sec;
   if(body.autodial&&!confirm('Turn on instant outbound? Every new Meta lead will be called immediately, about ₹6 per call from the Speko balance.'))return;
   try{
     await api(cq('/api/integrations/meta'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -1160,9 +1175,12 @@ async function boot(){
     if(e.key==='Enter'){LEADF.q=e.target.value;if(VIEW!=='leads')go('leads');else renderLeads()}
   });
   try{
-    const h=await api('/api/health');DEMO=h.demo_mode;
+    const h=await api('/api/health');DEMO=h.demo_mode;FX=h.usd_inr||88;
     const r=await api('/api/companies');COMPANIES=r;
-    const saved=localStorage.getItem('crm_company');
+    // ?company=ab-solar-live handover links must land on the right company,
+    // not whatever was last used on this device
+    const qs=new URLSearchParams(location.search);
+    const saved=qs.get('company')||localStorage.getItem('crm_company');
     setCompany(r.find(c=>c.id===saved)||r[0]);
     try{const t=await api(cq('/api/tasks?filter=today'));const n=$('navTaskCnt');
       if(t.length){n.hidden=false;n.textContent=t.length}}catch(e){}
