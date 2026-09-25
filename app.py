@@ -23,6 +23,7 @@ Env: SPEKO_API_KEY, SPEKO_AGENT_ID, DEMO_MODE, AUTO_DIAL,
 """
 import asyncio
 import base64
+import hashlib
 import hmac
 import json
 import math
@@ -36,7 +37,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.responses import (
     HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse,
     RedirectResponse,
@@ -77,7 +78,10 @@ app.router.lifespan_context = lifespan
 
 @app.middleware("http")
 async def basic_auth(request: Request, call_next):
-    if not DASH_USER or request.url.path == "/api/health":
+    # Meta's servers can't send Basic credentials, so the Lead Ads webhook
+    # must stay public (it has its own verify-token + signature checks).
+    if (not DASH_USER or request.url.path == "/api/health"
+            or request.url.path == "/api/webhooks/facebook"):
         return await call_next(request)
     ok = False
     auth = request.headers.get("authorization", "")
@@ -153,6 +157,25 @@ def lead_by_phone(phone: str, company_id: str):
         if digits(r["phone"])[-10:] == tail:
             return dict(r)
     return None
+
+
+def lead_by_phone_any(phone: str):
+    """Match a dialed number against leads in ANY company.
+
+    Returns (lead_dict, company_id) or (None, ''). The Speko sync uses this
+    so Karthik's live-company calls are never misattributed to the demo co."""
+    d = digits(phone)
+    if len(d) < 10:
+        return None, ""
+    tail = d[-10:]
+    con = db()
+    rows = con.execute(
+        "SELECT * FROM leads ORDER BY id DESC").fetchall()
+    con.close()
+    for r in rows:
+        if digits(r["phone"])[-10:] == tail:
+            return dict(r), (r["company_id"] or "")
+    return None, ""
 
 
 def log_activity_inline(con, company_id, lead_id, kind, title, detail=""):
@@ -463,6 +486,8 @@ async def _enrich_one(client, sem, s, company_id):
     return sid, "ok", {
         "to": to,
         "company_id": company_id,
+        "agent_id": det.get("agentId") or md.get("agentId") or "",
+        "meta_lead_id": md.get("lead_id"),
         "status": det.get("status") or s.get("status") or "",
         "started_at": s.get("createdAt") or det.get("createdAt") or "",
         "duration": dur,
@@ -487,7 +512,7 @@ async def refresh_calls_from_speko():
     sync_running = True
     try:
         comp = get_company(DEFAULT_COMPANY) or {}
-        company_id = comp.get("id") or DEFAULT_COMPANY
+        fallback_company = comp.get("id") or DEFAULT_COMPANY
         async with speko_async() as c:
             r = await c.get("/v1/sessions", params={"limit": 100})
             if r.status_code != 200:
@@ -496,6 +521,13 @@ async def refresh_calls_from_speko():
         con = db()
         known = {row["id"] for row in
                  con.execute("SELECT id FROM calls").fetchall()}
+        # agent id -> company: a call belongs to whichever company owns
+        # the Speko agent that placed it (never the default company)
+        agent_company = {}
+        for c in con.execute(
+                "SELECT id, speko_agent_id FROM companies").fetchall():
+            if c["speko_agent_id"]:
+                agent_company[c["speko_agent_id"]] = c["id"]
         con.close()
         skipped = _skip_ids()
         todo = [s for s in sessions
@@ -504,7 +536,7 @@ async def refresh_calls_from_speko():
         sem = asyncio.Semaphore(SYNC_CONCURRENCY)
         async with speko_async() as c:
             results = await asyncio.gather(
-                *[_enrich_one(c, sem, s, company_id) for s in todo])
+                *[_enrich_one(c, sem, s, fallback_company) for s in todo])
         new, skip = 0, []
         con = db()
         try:
@@ -514,7 +546,23 @@ async def refresh_calls_from_speko():
                     continue
                 if kind != "ok" or not p:
                     continue
-                lead = lead_by_phone(p["to"], company_id)
+                # resolve the true company for this call:
+                # 1) lead_id stamped in dial metadata, 2) agent->company map,
+                # 3) phone match across all companies, 4) default fallback
+                lead, cid = None, ""
+                if p.get("meta_lead_id"):
+                    r = con.execute(
+                        f"SELECT * FROM leads WHERE id={Q}",
+                        (p["meta_lead_id"],)).fetchone()
+                    if r:
+                        lead, cid = dict(r), r["company_id"] or ""
+                if not lead and p.get("agent_id") in agent_company:
+                    cid = agent_company[p["agent_id"]]
+                    lead = lead_by_phone(p["to"], cid)
+                if not lead:
+                    lead, cid = lead_by_phone_any(p["to"])
+                if not cid:
+                    cid = fallback_company
                 an = p["analysis"]
                 insert_call_ignore(
                     con, id=sid, lead_id=lead["id"] if lead else None,
@@ -527,19 +575,61 @@ async def refresh_calls_from_speko():
                     f" cost_usd={Q}, has_recording={Q}, to_number={Q},"
                     f" status={Q}, duration_seconds={Q}, usage_json={Q},"
                     f" talk_ratio={Q}, objections_json={Q}, next_action={Q},"
-                    f" disposition={Q}, intent_verdict={Q} WHERE id={Q}",
-                    (p["company_id"], p["outcome"], p["summary"],
+                    f" disposition={Q}, intent_verdict={Q},"
+                    f" intent_confidence={Q} WHERE id={Q}",
+                    (cid, p["outcome"], p["summary"],
                      p["structured"], p["transcript"], p["cost"],
                      p["has_recording"], p["to"], p["status"],
                      p["duration"], p["usage"], an["talk_ratio"],
                      json.dumps(an["objections"]), an["next_action"],
-                     an["disposition"], an["intent"], sid),
+                     an["disposition"], an["intent"],
+                     an["intent_confidence"], sid),
                 )
                 lid = lead["id"] if lead else None
                 if lid:
+                    # keep the stored score fresh so lists/kanban match the
+                    # drawer (previously lists always showed 0)
+                    lrow = con.execute(
+                        f"SELECT * FROM leads WHERE id={Q}",
+                        (lid,)).fetchone()
+                    lcalls = [dict(x) for x in con.execute(
+                        f"SELECT duration_seconds FROM calls"
+                        f" WHERE lead_id={Q}", (lid,)).fetchall()]
+                    score = lead_score(dict(lrow), lcalls)
                     con.execute(
-                        f"UPDATE leads SET last_activity_at={Q}"
-                        f" WHERE id={Q}", (now_iso(), lid))
+                        f"UPDATE leads SET last_activity_at={Q}, score={Q}"
+                        f" WHERE id={Q}", (now_iso(), score, lid))
+                    if an["disposition"] == "dnc":
+                        # prospect said do-not-call: suppress immediately,
+                        # don't wait for a human to tap the disposition
+                        con.execute(f"UPDATE leads SET dnc=1 WHERE id={Q}",
+                                    (lid,))
+                        log_activity_inline(
+                            con, cid, lid, "note",
+                            "Auto-suppressed (DNC)",
+                            "Prospect asked not to be called again.")
+                    elif an["intent"] == "callback":
+                        # prospect asked for a callback: make sure there's
+                        # an open task so it can't slip through
+                        ex = con.execute(
+                            f"SELECT id FROM tasks WHERE lead_id={Q}"
+                            f" AND done=0 AND kind='callback' LIMIT 1",
+                            (lid,)).fetchone()
+                        if not ex:
+                            tid = f"task-{uuid.uuid4().hex[:12]}"
+                            due = (datetime.now(timezone.utc)
+                                   + timedelta(days=1)).isoformat()
+                            nm = (lead.get("name") or p["to"]).strip()
+                            con.execute(
+                                f"INSERT INTO tasks (id, company_id, lead_id,"
+                                f" kind, title, due_at, created_at)"
+                                f" VALUES ({Q},{Q},{Q},{Q},{Q},{Q},{Q})",
+                                (tid, cid, lid, "callback",
+                                 f"Call back {nm}", due, now_iso()))
+                            log_activity_inline(
+                                con, cid, lid, "task",
+                                "Callback task created",
+                                "Prospect asked for a callback on the call.")
                 new += 1
             con.commit()
         finally:
@@ -616,17 +706,21 @@ def analyze_call(outcome, summary, lines, structured):
     outcome are kept verbatim; everything derived is labeled as such."""
     s = f"{outcome} {summary}".lower()
     if any(k in s for k in ("not interested", "declined", "not_interested",
-                            "dnc", "do not call")):
+                            "dnc", "do not call", "not qualified",
+                            "not_qualified", "unqualified")):
         intent, conf = "not_interested", 0.9
         disp = ("dnc" if "dnc" in s or "do not call" in s
                 else "not_interested_timing")
         nxt = "Move to Nurture" if disp != "dnc" else "Suppress (DNC)"
+    elif any(k in s for k in ("callback", "call back", "call me",
+                              "busy", "later")):
+        # before the survey/book branch: "please book a callback"
+        # contains "book" but is a callback, not a buying signal
+        intent, conf = "callback", 0.85
+        disp, nxt = "qualified_callback", "Schedule callback"
     elif any(k in s for k in ("survey", "book", "site visit", "qualified")):
         intent, conf = "buying", 0.85
         disp, nxt = "qualified_survey", "Book site survey"
-    elif any(k in s for k in ("callback", "call back", "busy", "later")):
-        intent, conf = "callback", 0.85
-        disp, nxt = "qualified_callback", "Schedule callback"
     elif any(k in s for k in ("no answer", "no-answer", "voicemail",
                               "not reachable")):
         intent, conf = "unknown", 0.9
@@ -846,6 +940,7 @@ def health():
             "sync_running": sync_running,
             "last_sync": kv_get("last_sync"),
             "version": 3,
+            "usd_inr": USD_INR,
             "schema_ok": not missing,
             "missing_columns": missing}
 
@@ -976,6 +1071,9 @@ def lead_detail(lead_id: int, req: Request):
         f" ORDER BY created_at DESC LIMIT 50", (lead_id,)).fetchall()]
     con.close()
     lead["score"] = lead_score(lead, calls)
+    # the drawer reads these names; the columns predate the UI labels
+    lead["financing_interest"] = lead.get("financing") or ""
+    lead["subsidy_awareness"] = lead.get("subsidy_aware") or ""
     lead["calls"], lead["tasks"], lead["notes"], lead["timeline"] = \
         calls, tasks, notes, acts
     return lead
@@ -993,8 +1091,15 @@ async def add_lead(req: Request):
     lid = insert_lead(con, name=body.get("name", ""), phone=phone,
                       source=body.get("source", "manual"),
                       campaign=body.get("campaign", ""), created_at=now)
-    con.execute(f"UPDATE leads SET company_id={Q}, stage='new',"
-                f" last_activity_at={Q} WHERE id={Q}", (cid, now, lid))
+    # qualification facts collected by the add-lead form (previously dropped)
+    qual = {k: body.get(k) for k in
+            ("monthly_bill_inr", "property_type", "roof_ownership",
+             "timeline", "decision_maker", "language")
+            if body.get(k) not in (None, "")}
+    cols = list(qual) + ["company_id", "stage", "last_activity_at"]
+    vals = list(qual.values()) + [cid, "new", now, lid]
+    con.execute(f"UPDATE leads SET {', '.join(f'{k}={Q}' for k in cols)}"
+                f" WHERE id={Q}", vals)
     con.commit()
     con.close()
     log_activity(cid, lid, "lead", "Lead added",
@@ -1010,11 +1115,18 @@ async def add_lead(req: Request):
 async def update_lead(lead_id: int, req: Request):
     """Update qualification facts / fields on a lead."""
     body = await req.json()
+    # the lead drawer reads financing_interest / subsidy_awareness while the
+    # schema historically used financing / subsidy_aware — accept both
+    aliases = {"financing_interest": "financing",
+               "subsidy_awareness": "subsidy_aware"}
+    for src, dst in aliases.items():
+        if src in body and dst not in body:
+            body[dst] = body[src]
     allowed = ["name", "phone", "language", "discom", "consumer_no",
                "property_type", "roof_ownership", "roof_type",
                "roof_area_sqft", "monthly_bill_inr", "monthly_units",
                "system_size_kw", "financing", "decision_maker", "timeline",
-               "subsidy_aware", "notes"]
+               "subsidy_aware", "notes", "dnc"]
     sets, vals = [], []
     for k in allowed:
         if k in body:
@@ -1361,8 +1473,12 @@ async def billing():
 
 @app.get("/api/agent")
 async def agent(req: Request):
-    info = await get_agent_info(get_company(_cid(req)))
+    comp = get_company(_cid(req))
+    info = await get_agent_info(comp)
     if info:
+        # the dialer's "From" line needs the real phone number, not just
+        # the agent's display name
+        info["caller_id"] = (comp or {}).get("caller_id") or ""
         return info
     raise HTTPException(502, "agent info unavailable")
 
@@ -1514,11 +1630,30 @@ def sync_status():
 
 # --------------------------------------------- facebook lead webhook -----
 @app.get("/api/webhooks/facebook")
-def fb_verify(hub_mode: str = "", hub_challenge: str = "",
-              hub_verify_token: str = ""):
+def fb_verify(hub_mode: str = Query(default="", alias="hub.mode"),
+              hub_challenge: str = Query(default="", alias="hub.challenge"),
+              hub_verify_token: str = Query(default="",
+                                            alias="hub.verify_token")):
+    # Meta sends hub.mode / hub.challenge / hub.verify_token (dotted);
+    # FastAPI needs explicit aliases to bind them.
     if hub_mode == "subscribe" and hub_verify_token == FB_VERIFY_TOKEN:
         return PlainTextResponse(hub_challenge)
     raise HTTPException(403, "verification failed")
+
+
+def verify_meta_signature(req: Request, body: bytes, app_secret: str) -> bool:
+    """Check X-Hub-Signature-256 against the Meta app secret.
+
+    When no secret is configured we can't verify — allow but flag it, so a
+    missing secret never silently blocks leads, yet the Integrations view
+    can warn that the webhook is unverified."""
+    if not app_secret:
+        return True
+    sig = req.headers.get("x-hub-signature-256", "")
+    if not sig.startswith("sha256="):
+        return False
+    mac = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig[7:], mac)
 
 
 def enrich_meta_lead(leadgen_id: str, page_token: str):
@@ -1546,22 +1681,34 @@ def enrich_meta_lead(leadgen_id: str, page_token: str):
 
 
 def auto_dials_today(company_id: str) -> int:
-    """Count auto-dial activities today (for the Meta daily cap)."""
+    """Count real auto-dial attempts today (for the Meta daily cap).
+
+    Skipped dials (DNC / cap reached) are logged with kind='auto_dial' too
+    but must NOT eat the cap — only placed/failed attempts count."""
     con = db()
     day = now_iso()[:10]
-    n = con.execute(
-        f"SELECT COUNT(*) FROM activities WHERE company_id={Q}"
-        f" AND kind='auto_dial' AND substr(created_at,1,10)={Q}",
-        (company_id, day)).fetchone()[0]
+    row = con.execute(
+        f"SELECT COUNT(*) AS n FROM activities WHERE company_id={Q}"
+        f" AND kind='auto_dial' AND substr(created_at,1,10)={Q}"
+        f" AND (title LIKE 'Auto-dial placed%'"
+        f" OR title LIKE 'Auto-dial failed%')",
+        (company_id, day)).fetchone()
     con.close()
-    return n or 0
+    return (row["n"] if row else 0) or 0
 
 
 @app.post("/api/webhooks/facebook")
 async def fb_lead(req: Request):
     cid = req.query_params.get("company") or DEFAULT_COMPANY
     comp = get_company(cid) or {}
-    body = await req.json()
+    raw = await req.body()
+    if not verify_meta_signature(req, raw,
+                                 comp.get("meta_app_secret") or ""):
+        raise HTTPException(403, "bad signature")
+    try:
+        body = json.loads(raw.decode() or "{}")
+    except Exception:
+        raise HTTPException(400, "bad json")
     now = now_iso()
     con = db()
     ids = []
@@ -1570,18 +1717,35 @@ async def fb_lead(req: Request):
             for ch in entry.get("changes", []):
                 v = ch.get("value", {})
                 lgid = v.get("leadgen_id", "")
+                # Meta retries a webhook when we 500 — never double-create
+                if lgid:
+                    dup = con.execute(
+                        f"SELECT id FROM leads WHERE company_id={Q}"
+                        f" AND meta_leadgen_id={Q} LIMIT 1",
+                        (cid, lgid)).fetchone()
+                    if dup:
+                        ids.append(dup["id"])
+                        continue
                 name, phone, email = "", "", ""
                 if lgid and comp.get("meta_page_token"):
                     name, phone, email = enrich_meta_lead(
                         lgid, comp["meta_page_token"])
-                lid = insert_lead(
-                    con, name=name, phone=phone, source="facebook",
-                    campaign=v.get("form_id", ""), created_at=now,
-                    status="new" if phone else "needs_enrichment",
-                    notes=f"leadgen_id={lgid} page_id={v.get('page_id','')}")
+                try:
+                    lid = insert_lead(
+                        con, name=name, phone=phone, source="facebook",
+                        campaign=v.get("form_id", ""), created_at=now,
+                        status="new" if phone else "needs_enrichment",
+                        notes=f"leadgen_id={lgid} page_id={v.get('page_id','')}")
+                except Exception:
+                    # duplicate phone (or any insert conflict) — roll back
+                    # the poisoned transaction, treat the webhook as
+                    # handled, never 500 back to Meta
+                    con.rollback()
+                    continue
                 con.execute(f"UPDATE leads SET company_id={Q}, stage='new',"
-                            f" email={Q}, last_activity_at={Q} WHERE id={Q}",
-                            (cid, email, now, lid))
+                            f" email={Q}, last_activity_at={Q},"
+                            f" meta_leadgen_id={Q} WHERE id={Q}",
+                            (cid, email, now, lgid, lid))
                 ids.append(lid)
                 log_activity_inline(con, cid, lid, "lead",
                                     "Lead from Facebook",
@@ -1621,6 +1785,7 @@ def meta_settings(req: Request):
         "connected": bool(comp.get("meta_page_token")),
         "webhook_url": f"{host}/api/webhooks/facebook?company={cid}",
         "verify_token_set": bool(FB_VERIFY_TOKEN),
+        "app_secret_set": bool(comp.get("meta_app_secret")),
         "autodial": bool(comp.get("meta_autodial")),
         "daily_cap": comp.get("meta_daily_cap") or 50,
         "auto_dials_today": auto_dials_today(cid),
@@ -1636,6 +1801,11 @@ async def meta_settings_update(req: Request):
     if "page_token" in body and isinstance(body["page_token"], str):
         sets.append(f"meta_page_token={Q}")
         vals.append(body["page_token"].strip())
+    if "app_secret" in body and isinstance(body["app_secret"], str):
+        # Meta app secret → enables X-Hub-Signature-256 verification so
+        # nobody can inject fake leads and burn call credits
+        sets.append(f"meta_app_secret={Q}")
+        vals.append(body["app_secret"].strip())
     if "autodial" in body:
         sets.append(f"meta_autodial={Q}")
         vals.append(1 if body["autodial"] else 0)

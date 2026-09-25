@@ -98,8 +98,11 @@ _V3_COLS = [
     ("calls", "next_action", "TEXT DEFAULT ''"),
     ("calls", "disposition", "TEXT DEFAULT ''"),
     ("companies", "meta_page_token", "TEXT DEFAULT ''"),
+    ("companies", "meta_app_secret", "TEXT DEFAULT ''"),
     ("companies", "meta_autodial", "INTEGER DEFAULT 0"),
     ("companies", "meta_daily_cap", "INTEGER DEFAULT 50"),
+    ("leads", "meta_leadgen_id", "TEXT DEFAULT ''"),
+    ("calls", "intent_confidence", "REAL DEFAULT 0"),
 ]
 
 
@@ -298,8 +301,7 @@ def migrate():
                 last_call_at TEXT DEFAULT '', created_at TEXT DEFAULT '',
                 demo INTEGER DEFAULT 0, score INTEGER DEFAULT 0,
                 campaign TEXT DEFAULT '')""".format(pk=pk))
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_phone"
-                    " ON leads(phone)")
+        con.execute("DROP INDEX IF EXISTS ux_leads_phone")
         con.execute(
             """CREATE TABLE IF NOT EXISTS calls (
                 id TEXT PRIMARY KEY, lead_id INTEGER,
@@ -342,6 +344,11 @@ def migrate():
                     " ON activities(lead_id, created_at)")
         _add_cols(con, "leads", _LEAD_COLS)
         _add_cols(con, "calls", _CALL_COLS)
+        # phone uniqueness is per-company, and empty phones (failed Meta
+        # enrichment) must never collide. Runs after the column migrations
+        # so company_id always exists, on fresh and old databases alike.
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_company_phone"
+                    " ON leads(company_id, phone) WHERE phone <> ''")
         con.execute("CREATE INDEX IF NOT EXISTS ix_leads_co"
                     " ON leads(company_id, stage)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_calls_co"
