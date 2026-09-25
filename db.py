@@ -39,7 +39,11 @@ _CALLS_DDL = """CREATE TABLE IF NOT EXISTS calls (
     status TEXT, started_at TEXT, duration_seconds INTEGER DEFAULT 0,
     outcome TEXT DEFAULT '', summary TEXT DEFAULT '',
     transcript TEXT DEFAULT '[]', cost_usd REAL DEFAULT 0,
-    has_recording INTEGER DEFAULT 0, demo INTEGER DEFAULT 0
+    has_recording INTEGER DEFAULT 0, demo INTEGER DEFAULT 0,
+    usage_json TEXT DEFAULT '[]'
+)"""
+_KV_DDL = """CREATE TABLE IF NOT EXISTS kv (
+    key TEXT PRIMARY KEY, value TEXT DEFAULT ''
 )"""
 
 
@@ -49,6 +53,34 @@ def init_db():
     # one statement per execute: psycopg does not take multi-statement scripts
     con.execute(_LEADS_DDL.format(pk=pk))
     con.execute(_CALLS_DDL)
+    con.execute(_KV_DDL)
+    # migrate: older DBs lack usage_json on calls
+    try:
+        con.execute("ALTER TABLE calls ADD COLUMN usage_json TEXT DEFAULT '[]'")
+    except Exception:
+        pass
+    con.commit()
+    con.close()
+
+
+def kv_get(key, default=""):
+    con = db()
+    r = con.execute(f"SELECT value FROM kv WHERE key={Q}",
+                    (key,)).fetchone()
+    con.close()
+    return r["value"] if r and r["value"] is not None else default
+
+
+def kv_set(key, value):
+    con = db()
+    if USE_PG:
+        con.execute(
+            f"INSERT INTO kv (key, value) VALUES ({Q},{Q})"
+            f" ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+            (key, value))
+    else:
+        con.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?,?)",
+                    (key, value))
     con.commit()
     con.close()
 

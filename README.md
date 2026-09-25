@@ -2,7 +2,11 @@
 
 Client-facing dashboard for the Priya (Sri Surya Solar) outbound voice agent.
 AB Solar sees: ad-campaign **leads**, every **call** (status / duration /
-outcome / cost), full **conversation transcripts**, and **recording playback**.
+outcome / cost), full **conversation transcripts**, **recording playback**,
+**Speko balance/credits**, a 14-day **spend chart**, the provider **cost
+split** (phone line vs voice vs AI), and the **agent + caller-ID card**.
+Mobile-first UI with bottom navigation; instant page loads — Speko syncs in
+the background.
 
 ## Quick start
 
@@ -76,8 +80,20 @@ far more than 20–30 client dashboards will generate.
 
 ## Notes
 
+- **Speed design (v2):** page loads serve instantly from the local DB/cache —
+  nothing on the critical path waits for Speko. `POST /api/sync` runs the
+  sync in the background (one sessions-list call, then only *new* sessions
+  enriched in parallel, 10-way); eval/reliability sessions are remembered and
+  never re-fetched. Recording presence comes from the session detail's
+  `recordingStatus` — no extra per-session probe. The old design did up to 3
+  *sequential* calls per session on every page load (the minutes-long spinner).
+- New API routes: `GET /api/billing` (Speko balance/credits + provider cost
+  split, 15-min cache), `GET /api/usage/daily` (14-day spend/calls),
+  `GET /api/agent` (Priya config, 1-h cache), `GET /api/numbers` (caller IDs),
+  `POST /api/sync` + `GET /api/sync/status` (background sync control).
 - Call list/detail pull from Speko's platform API (`https://api.speko.dev`):
-  `GET /v1/sessions` (list), `GET /v1/sessions/{id}` (dialed number, cost),
+  `GET /v1/sessions` (list), `GET /v1/sessions/{id}` (dialed number, cost,
+  per-provider `usage`, `recordingStatus`),
   `GET /v1/sessions/{id}/transcript`, `GET /v1/sessions/{id}/recording`
   (signed URL). Cached in the DB, matched to leads by phone. Automated
   eval/reliability sessions (no phone leg) are skipped.
