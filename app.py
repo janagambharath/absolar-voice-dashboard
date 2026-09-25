@@ -1690,9 +1690,9 @@ def auto_dials_today(company_id: str) -> int:
     row = con.execute(
         f"SELECT COUNT(*) AS n FROM activities WHERE company_id={Q}"
         f" AND kind='auto_dial' AND substr(created_at,1,10)={Q}"
-        f" AND (title LIKE 'Auto-dial placed%'"
-        f" OR title LIKE 'Auto-dial failed%')",
-        (company_id, day)).fetchone()
+        f" AND (title LIKE {Q} OR title LIKE {Q})",
+        (company_id, day, "Auto-dial placed%",
+         "Auto-dial failed%")).fetchone()
     con.close()
     return (row["n"] if row else 0) or 0
 
