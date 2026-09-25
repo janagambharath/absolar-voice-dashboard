@@ -116,7 +116,8 @@ button.brandmark{cursor:pointer}
 .phead{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .phead h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
 .pmeta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);margin-top:4px;flex-wrap:wrap}
-.pmeta .dot{width:3px;height:3px;border-radius:50%;background:var(--text-3)}
+.pmeta .dot,#pipeMeta .dot{width:3px;height:3px;border-radius:50%;background:var(--text-3);flex:none}
+#pipeMeta{display:inline-flex;align-items:center;gap:8px}
 .pactions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 /* ============ buttons ============ */
@@ -331,6 +332,7 @@ ol.steps b{color:var(--ink);font-weight:600}
 /* modal */
 .modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;padding:16px}
 .modal.show{display:flex}
+.modal .scrim{position:absolute;z-index:0}
 .modal .mbox{background:var(--surface);border-radius:20px;box-shadow:var(--shadow-pop);
   width:460px;max-width:100%;padding:26px;position:relative;z-index:1}
 .modal h3{font-size:17px;font-weight:800;margin-bottom:4px;letter-spacing:-.01em}
