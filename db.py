@@ -260,25 +260,25 @@ _CALL_COLS = [
 
 
 def _add_cols(con, table, cols):
-    have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+    # _add_col is already dialect-aware (PG: ADD COLUMN IF NOT EXISTS).
     for name, ddl in cols:
-        if name not in have:
-            con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        _add_col(con, table, name, ddl)
 
 
 def migrate():
     """Create v3 tables and add new columns; safe to run repeatedly."""
     con = db()
+    pk = "SERIAL PRIMARY KEY" if USE_PG else "INTEGER PRIMARY KEY AUTOINCREMENT"
     try:
         # base tables (v1 schema) — created if missing
         con.execute(
             """CREATE TABLE IF NOT EXISTS leads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT NOT NULL,
+                id {pk}, phone TEXT NOT NULL,
                 name TEXT DEFAULT '', source TEXT DEFAULT '',
                 status TEXT DEFAULT '', notes TEXT DEFAULT '',
                 last_call_at TEXT DEFAULT '', created_at TEXT DEFAULT '',
                 demo INTEGER DEFAULT 0, score INTEGER DEFAULT 0,
-                campaign TEXT DEFAULT '')""")
+                campaign TEXT DEFAULT '')""".format(pk=pk))
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_phone"
                     " ON leads(phone)")
         con.execute(
