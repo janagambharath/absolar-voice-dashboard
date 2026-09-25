@@ -104,10 +104,23 @@ _V3_COLS = [
 
 
 def _add_col(con, table, col, ddl):
+    """Add a column if missing. On Postgres each DDL runs inside a savepoint
+    so one bad statement can never poison the transaction and silently skip
+    every migration after it (psycopg aborts the whole txn on first error)."""
     try:
         if USE_PG:
-            con.execute(
-                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
+            con.execute("SAVEPOINT _migrate_col")
+            try:
+                con.execute(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
+            except Exception:
+                con.execute("ROLLBACK TO SAVEPOINT _migrate_col")
+                raise
+            finally:
+                try:
+                    con.execute("RELEASE SAVEPOINT _migrate_col")
+                except Exception:
+                    pass
         else:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     except Exception:
@@ -125,9 +138,15 @@ def init_db():
     con.execute(_TASKS_DDL)
     con.execute(_NOTES_DDL)
     con.execute(_ACTIVITIES_DDL)
-    # migrate: older DBs lack usage_json on calls
+    # migrate: older DBs lack usage_json on calls (IF NOT EXISTS on PG:
+    # a duplicate-column error would abort the whole psycopg transaction
+    # and silently skip every v3 column migration after it)
     try:
-        con.execute("ALTER TABLE calls ADD COLUMN usage_json TEXT DEFAULT '[]'")
+        if USE_PG:
+            con.execute("ALTER TABLE calls ADD COLUMN IF NOT EXISTS"
+                        " usage_json TEXT DEFAULT '[]'")
+        else:
+            con.execute("ALTER TABLE calls ADD COLUMN usage_json TEXT DEFAULT '[]'")
     except Exception:
         pass
     # v3 migrations

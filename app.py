@@ -820,12 +820,34 @@ def index():
 
 @app.get("/api/health")
 def health():
+    # schema self-check: every v3 column the API reads must exist, otherwise
+    # endpoints 500 (this caught a silently-skipped PG migration on 2026-09-25)
+    missing = []
+    try:
+        from db import _V3_COLS, USE_PG
+        con = db()
+        for table, col, _ddl in _V3_COLS:
+            if USE_PG:
+                r = con.execute(
+                    "SELECT 1 FROM information_schema.columns"
+                    " WHERE table_name=%s AND column_name=%s",
+                    (table, col)).fetchone()
+            else:
+                r = [x for x in con.execute(f"PRAGMA table_info({table})")
+                     if x[1] == col]
+            if not r:
+                missing.append(f"{table}.{col}")
+        con.close()
+    except Exception as e:
+        missing = [f"check failed: {e}"]
     return {"ok": True, "demo_mode": DEMO_MODE,
             "speko_configured": bool(SPEKO_API_KEY),
             "auto_dial": AUTO_DIAL,
             "sync_running": sync_running,
             "last_sync": kv_get("last_sync"),
-            "version": 3}
+            "version": 3,
+            "schema_ok": not missing,
+            "missing_columns": missing}
 
 
 @app.get("/api/companies")
