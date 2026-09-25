@@ -1,620 +1,1179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>AB Solar — Voice Agent Dashboard</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voice-AI CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0b0d11; --card:#131720; --card2:#1a2030; --line:#232b3d;
-    --txt:#f2f4f8; --mut:#8f99ad; --mut2:#6b7488;
-    --amber:#f5a623; --amber2:#ffcf6b; --amber-dim:#3a2a08;
-    --green:#34d17b; --green-dim:#0a2e1c;
-    --red:#f4655f; --red-dim:#3a1414;
-    --blue:#5aa9ff; --blue-dim:#0f2c4d;
-    --violet:#b48cff;
-    --r:18px; --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
-  }
-  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-  html{scroll-behavior:smooth}
-  body{background:var(--bg);color:var(--txt);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans Telugu","Noto Sans",sans-serif;
-    font-size:16px;line-height:1.5;min-height:100vh;
-    padding-bottom:calc(84px + var(--sab));}
-  @media(min-width:900px){body{padding-bottom:40px}}
+/* ============ tokens ============ */
+:root{
+  --bg:#EBEEF5;
+  --surface:#FFFFFF;
+  --surface-2:#F4F6FB;
+  --border:#E8ECF3;
+  --ink:#141A26;
+  --text-2:#5C6575;
+  --text-3:#99A2B4;
+  --accent:#15803D;
+  --accent-hover:#166534;
+  --accent-tint:#E9F5EC;
+  --accent-deep:color-mix(in srgb, var(--accent) 62%, #101828);
+  --success:#12A150; --success-tint:#DDF5E5;
+  --warning:#C77408; --warning-tint:#FBEEDC;
+  --danger:#D92D20;  --danger-tint:#FBE9E7;
+  --info:#2E5BFF;    --info-tint:#E6EDFF;
+  --violet:#7C3AED;  --violet-tint:#EEE6FD;
+  --slate-tint:#E9EDF3;
+  --r-card:18px; --r-ctl:12px;
+  --shadow-card:0 1px 2px rgba(16,24,40,.05), 0 12px 30px -14px rgba(16,24,40,.16);
+  --shadow-pop:0 16px 48px -10px rgba(16,24,40,.25);
+  --font-ui:"Plus Jakarta Sans",-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--font-ui);color:var(--ink);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(900px 480px at 8% -10%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(1100px 560px at 108% 112%, color-mix(in srgb, #4F46E5 12%, transparent), transparent 62%),
+    var(--bg);
+  background-attachment:fixed;
+  min-height:100vh;
+}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:14px}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+a{color:var(--accent);text-decoration:none}
 
-  /* ---------- top bar ---------- */
-  .topbar{position:sticky;top:0;z-index:40;background:rgba(11,13,17,.88);
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    border-bottom:1px solid var(--line);padding:calc(10px + var(--sat)) 16px 10px;}
-  .topbar-in{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px}
-  .brand{display:flex;align-items:center;gap:10px;min-width:0}
-  .logo{width:42px;height:42px;flex:none;border-radius:13px;
-    background:linear-gradient(135deg,var(--amber),#d97a00);
-    display:flex;align-items:center;justify-content:center;font-size:21px;
-    box-shadow:0 4px 14px rgba(245,166,35,.28)}
-  .brand h1{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .brand p{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .desknav{display:none;gap:4px;margin-left:8px}
-  @media(min-width:900px){.desknav{display:flex}}
-  .dnav{border:none;background:transparent;color:var(--mut);font-size:14px;font-weight:600;
-    padding:10px 14px;border-radius:10px;cursor:pointer;min-height:44px}
-  .dnav.on{color:var(--txt);background:var(--card2)}
-  .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
-  .balpill{background:var(--green-dim);border:1px solid #14532d;color:var(--green);
-    font-weight:800;font-size:14px;padding:8px 13px;border-radius:999px;white-space:nowrap}
-  .balpill.low{background:var(--red-dim);border-color:#5c1d1d;color:var(--red)}
-  .syncpill{display:none;align-items:center;gap:6px;color:var(--mut);font-size:12px;
-    background:var(--card);border:1px solid var(--line);padding:8px 12px;border-radius:999px;white-space:nowrap}
-  @media(min-width:640px){.syncpill{display:inline-flex}}
-  .syncpill .spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--amber);
-    border-radius:50%;animation:rot 1s linear infinite}
-  @keyframes rot{to{transform:rotate(360deg)}}
-  .iconbtn{background:var(--card);border:1px solid var(--line);color:var(--txt);
-    width:44px;height:44px;border-radius:12px;cursor:pointer;font-size:18px;
-    display:flex;align-items:center;justify-content:center;flex:none}
-  .iconbtn:active{transform:scale(.94)}
-  .modebadge{font-size:10px;font-weight:800;letter-spacing:.6px;padding:4px 9px;border-radius:999px}
-  .modebadge.live{background:var(--green-dim);color:var(--green);border:1px solid #14532d}
-  .modebadge.demo{background:var(--amber-dim);color:var(--amber2);border:1px solid #6b4d12}
+/* ============ app frame: icon rail + topbar ============ */
+.app{display:flex;min-height:100vh}
+.side{width:80px;flex:none;background:var(--surface);
+  border-right:1px solid var(--border);position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;z-index:45}
+.brandmark{width:42px;height:42px;border-radius:15px;background:var(--accent);
+  color:#fff;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:16px;flex:none;border:0;letter-spacing:.02em}
+button.brandmark{cursor:pointer}
+.railchev{color:var(--text-3);margin:2px 0 10px}
+.nav{display:flex;flex-direction:column;gap:6px;align-items:center;width:100%}
+.navlabel{display:none}
+.navitem{width:50px;height:50px;border-radius:16px;display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);border:0;background:none;position:relative}
+.navitem:hover{background:var(--surface-2);color:var(--ink)}
+.navitem.on{background:var(--ink);color:#fff}
+.navitem .nlab{display:none}
+.navitem .cnt{position:absolute;top:6px;right:6px;min-width:18px;height:18px;font-size:10px;font-weight:700;
+  background:var(--danger);color:#fff;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px}
+.sidefoot{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:10px}
+.railbtn{width:50px;height:50px;border-radius:16px;border:0;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center}
+.railbtn:hover{background:var(--accent-hover)}
+.main{flex:1;min-width:0}
+.page{max-width:1220px;margin:0 auto;padding:28px 28px 40px}
 
-  main{max-width:1100px;margin:0 auto;padding:16px 14px 0}
-  @media(min-width:900px){main{padding:22px 20px 0}}
+/* topbar (all sizes) */
+.topbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;
+  padding:14px 28px;
+  padding-top:calc(14px + env(safe-area-inset-top));
+  background:color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.tsearch{display:flex;align-items:center;gap:9px;background:var(--surface);
+  border-radius:999px;padding:9px 16px;min-width:200px;max-width:340px;flex:1;
+  box-shadow:var(--shadow-card);color:var(--text-3)}
+.tsearch input{border:0;outline:0;background:none;width:100%;font-size:13px;color:var(--ink)}
+.tsearch input::placeholder{color:var(--text-3)}
+.tdate{font-size:13px;font-weight:600;color:var(--text-2);white-space:nowrap}
+.tdate b{color:var(--accent)}
+.cavatar{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;
+  border:2px solid #fff;box-shadow:var(--shadow-card);cursor:pointer;flex:none}
 
-  /* ---------- hero / cards ---------- */
-  .hero{background:linear-gradient(135deg,#182234,#101827 60%,#1d1607);
-    border:1px solid var(--line);border-radius:22px;padding:20px;margin-bottom:14px;position:relative;overflow:hidden}
-  .hero::after{content:"☀️";position:absolute;right:14px;top:8px;font-size:64px;opacity:.12}
-  .hero .k{color:var(--mut);font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
-  .hero .big{font-size:38px;font-weight:800;margin:4px 0 2px;letter-spacing:-.5px}
-  .hero .sub{color:var(--mut);font-size:13px}
-  .hero .warn{margin-top:10px;background:var(--red-dim);border:1px solid #5c1d1d;color:var(--red);
-    font-size:13px;font-weight:600;padding:9px 12px;border-radius:12px}
-  .stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
-  @media(min-width:640px){.stats-grid{grid-template-columns:repeat(3,1fr)}}
-  @media(min-width:900px){.stats-grid{grid-template-columns:repeat(6,1fr)}}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    padding:15px 14px;min-height:92px;display:flex;flex-direction:column;justify-content:center}
-  .stat .v{font-size:24px;font-weight:800;letter-spacing:-.3px}
-  .stat .l{color:var(--mut);font-size:12px;margin-top:3px}
-  .stat.q .v{color:var(--green)} .stat.s .v{color:var(--amber2)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    padding:18px;margin-bottom:14px}
-  .card h3{font-size:15px;font-weight:700;margin-bottom:4px}
-  .card .hint{color:var(--mut);font-size:12px;margin-bottom:12px}
-  .grid2{display:grid;gap:14px}
-  @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+/* mobile bottom nav */
+.bnav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:40;
+  background:var(--surface);border-top:1px solid var(--border);
+  padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  grid-template-columns:repeat(6,1fr)}
+.bnav button{border:0;background:none;display:flex;flex-direction:column;
+  align-items:center;gap:3px;font-size:9px;font-weight:700;color:var(--text-2);
+  padding:6px 0;letter-spacing:.02em}
+.bnav button.on{color:var(--accent)}
 
-  .bar-row{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:13px}
-  .bar-row .bl{width:118px;flex:none;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bar-track{flex:1;height:10px;background:var(--card2);border-radius:6px;overflow:hidden}
-  .bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--amber),var(--amber2))}
-  .bar-fill.g{background:linear-gradient(90deg,#1f9d55,var(--green))}
-  .bar-fill.b{background:linear-gradient(90deg,#2f7fe0,var(--blue))}
-  .bar-fill.v{background:linear-gradient(90deg,#8a5cf6,var(--violet))}
-  .bar-row .bv{width:76px;flex:none;text-align:right;font-weight:700}
-  .chart{display:flex;align-items:flex-end;gap:6px;height:130px;padding-top:8px}
-  .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
-  .chart .cb{width:100%;max-width:34px;border-radius:6px 6px 3px 3px;
-    background:linear-gradient(180deg,var(--amber2),var(--amber));min-height:3px}
-  .chart .cd{font-size:10px;color:var(--mut2)}
-  .chart .cv{font-size:10px;color:var(--mut);font-weight:700}
+/* ============ greeting header ============ */
+.greet{display:flex;align-items:flex-start;gap:16px;margin:6px 0 22px;flex-wrap:wrap}
+.greet h1{font-size:30px;font-weight:800;letter-spacing:-.025em}
+.greet .gsub{font-size:13.5px;color:var(--text-2);margin-top:4px}
+.greet .pactions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
-  .agentrow{display:flex;align-items:center;gap:12px}
-  .avatar{width:52px;height:52px;flex:none;border-radius:50%;
-    background:linear-gradient(135deg,#8a5cf6,#5aa9ff);
-    display:flex;align-items:center;justify-content:center;font-size:24px}
-  .agentrow .nm{font-weight:700;font-size:15px}
-  .agentrow .mt{color:var(--mut);font-size:13px}
-  .kv{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
-  .kv:first-of-type{border-top:none}
-  .kv .k{color:var(--mut)} .kv .v{font-weight:600;text-align:right}
+/* classic page header (inner views) */
+.crumb{font-size:12px;color:var(--text-2);margin-bottom:4px}
+.crumb b{color:var(--ink);font-weight:600}
+.phead{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.phead h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.pmeta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);margin-top:4px;flex-wrap:wrap}
+.pmeta .dot{width:3px;height:3px;border-radius:50%;background:var(--text-3)}
+.pactions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
-  /* ---------- lists: cards on mobile, tables on desktop ---------- */
-  .toolbar{position:sticky;top:calc(63px + var(--sat));z-index:30;background:rgba(11,13,17,.92);
-    backdrop-filter:blur(10px);padding:10px 0;display:flex;gap:8px;margin-bottom:10px}
-  .toolbar input{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);
-    color:var(--txt);padding:12px 14px;border-radius:12px;font-size:16px;min-height:48px}
-  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
-  .chips::-webkit-scrollbar{display:none}
-  .chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--mut);
-    font-size:13px;font-weight:600;padding:10px 15px;border-radius:999px;cursor:pointer;min-height:44px}
-  .chip.on{background:var(--amber-dim);border-color:var(--amber);color:var(--amber2)}
-  .ccard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    padding:15px 16px;margin-bottom:10px;cursor:pointer}
-  .ccard:active{background:var(--card2)}
-  .ccard .r1{display:flex;align-items:center;gap:10px}
-  .ccard .nm{font-weight:700;font-size:15px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ccard .ph{color:var(--mut);font-size:13px;margin-top:2px}
-  .ccard .r2{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
-  .ccard .meta{color:var(--mut);font-size:12px}
-  .ccard .cost{margin-left:auto;font-weight:700;font-size:14px;color:var(--amber2)}
-  .dtable{display:none}
-  @media(min-width:900px){
-    .mcards{display:none}
-    .dtable{display:block;width:100%;border-collapse:collapse;background:var(--card);
-      border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-size:14px}
-    .dtable th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;
-      text-transform:uppercase;letter-spacing:.4px;padding:12px 14px;border-bottom:1px solid var(--line)}
-    .dtable td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
-    .dtable tr:last-child td{border-bottom:none}
-    .dtable tbody tr{cursor:pointer}
-    .dtable tbody tr:hover td{background:var(--card2)}
-  }
-  .pill{display:inline-block;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap}
-  .p-qualified{background:var(--green-dim);color:var(--green)}
-  .p-callback{background:var(--blue-dim);color:var(--blue)}
-  .p-not_interested{background:var(--red-dim);color:var(--red)}
-  .p-no_answer,.p-other,.p-called{background:#232833;color:var(--mut)}
-  .p-new,.p-needs_enrichment{background:var(--amber-dim);color:var(--amber2)}
-  .btn{background:var(--amber);color:#141414;border:none;min-height:48px;padding:12px 20px;
-    border-radius:13px;font-weight:800;cursor:pointer;font-size:15px}
-  .btn:active{transform:scale(.97)}
-  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
-  .btn.sm{min-height:44px;padding:10px 16px;font-size:14px;border-radius:11px}
-  .mut{color:var(--mut);font-size:13px}
-  .empty{text-align:center;color:var(--mut);padding:36px 16px;font-size:14px}
-  .actions{display:flex;gap:8px;margin-top:12px}
-  .actions .btn{flex:1}
+/* ============ buttons ============ */
+.btn{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:700;
+  padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--border);
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow-card);
+  transition:transform .12s ease, box-shadow .12s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.dark{background:#171B24;border-color:#171B24;color:#fff}
+.btn.dark:hover{background:#232936}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.sm{padding:6px 12px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  border-radius:50%;border:0;background:var(--surface);color:var(--text-2);box-shadow:var(--shadow-card)}
+.iconbtn:hover{color:var(--ink)}
 
-  /* ---------- bottom nav ---------- */
-  .bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:40;
-    background:rgba(15,18,25,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-    border-top:1px solid var(--line);
-    padding:6px 4px calc(8px + var(--sab));display:flex}
-  @media(min-width:900px){.bottomnav{display:none}}
-  .bnav{flex:1;border:none;background:transparent;color:var(--mut);cursor:pointer;
-    display:flex;flex-direction:column;align-items:center;gap:3px;
-    font-size:11px;font-weight:600;min-height:56px;justify-content:center;border-radius:12px}
-  .bnav .ic{font-size:21px}
-  .bnav.on{color:var(--amber2)}
-  .bnav:active{background:var(--card2)}
+/* ============ cards ============ */
+.card{background:var(--surface);border-radius:var(--r-card);padding:22px;
+  box-shadow:var(--shadow-card)}
+.card h3{font-size:14px;font-weight:700;margin-bottom:14px}
+.chead{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.ctitle{font-size:14px;font-weight:700}
+.chead .pill,.chead .spacer{margin-left:auto}
+.cbody{min-width:0}
+.section{margin-bottom:22px}
 
-  /* ---------- sheet (call detail) ---------- */
-  .sheet-wrap{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.62);
-    display:none;align-items:flex-end;justify-content:center}
-  .sheet-wrap.open{display:flex}
-  .sheet{background:var(--card);border:1px solid var(--line);border-bottom:none;
-    border-radius:24px 24px 0 0;width:100%;max-width:680px;max-height:92vh;max-height:92dvh;
-    overflow-y:auto;padding:14px 18px calc(20px + var(--sab));
-    animation:up .28s cubic-bezier(.2,.9,.3,1)}
-  @media(min-width:900px){
-    .sheet-wrap{align-items:center;padding:24px}
-    .sheet{border-radius:24px;border-bottom:1px solid var(--line);animation:pop .22s ease-out}
-  }
-  @keyframes up{from{transform:translateY(60px);opacity:.4}}
-  @keyframes pop{from{transform:scale(.96);opacity:.4}}
-  .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:2px auto 14px}
-  .sheet h2{font-size:18px}
-  .sheet .sub{color:var(--mut);font-size:13px;margin:4px 0 12px}
-  .summary{background:var(--card2);border:1px solid var(--line);border-radius:14px;
-    padding:13px 15px;margin:12px 0;font-size:14px;line-height:1.55}
-  .turns{display:flex;flex-direction:column;gap:9px;margin:12px 0 4px}
-  .turn{max-width:88%;padding:11px 15px;border-radius:16px;font-size:15px;line-height:1.6}
-  .turn.agent{align-self:flex-start;background:#2a2113;border:1px solid #4a3a1a;border-bottom-left-radius:6px}
-  .turn.lead{align-self:flex-end;background:#1c2b45;border:1px solid #2c4470;border-bottom-right-radius:6px}
-  .turn .who{font-size:11px;color:var(--mut);margin-bottom:3px;font-weight:700}
-  audio{width:100%;margin-top:10px;min-height:48px}
-  .closebtn{position:sticky;top:0;float:right;background:var(--card2);border:1px solid var(--line);
-    color:var(--txt);border-radius:12px;width:44px;height:44px;cursor:pointer;font-size:17px;z-index:2}
+/* ============ stat cards (reference style) ============ */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:22px}
+.stat{background:var(--surface);border-radius:var(--r-card);padding:20px;
+  box-shadow:var(--shadow-card);position:relative;min-width:0}
+.stat .lbl{font-size:13px;color:var(--text-2);font-weight:500;padding-right:40px}
+.stat .go{position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;
+  background:var(--surface-2);display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);border:0}
+.stat .val{font-size:32px;font-weight:800;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1.1;margin-top:12px}
+.stat .delta{display:inline-flex;align-items:center;font-size:11px;font-weight:700;
+  border-radius:999px;padding:3px 10px;margin-top:10px}
+.stat .cap{font-size:11px;color:var(--text-3);margin-top:6px}
+.delta.up{background:var(--success-tint);color:var(--success)}
+.delta.down{background:var(--danger-tint);color:var(--danger)}
+.delta.flat{background:var(--slate-tint);color:var(--text-2)}
+.stat.hero{background:linear-gradient(135deg,var(--accent) 0%,var(--accent-deep) 135%);
+  color:#fff;border:0}
+.stat.hero .lbl{color:rgba(255,255,255,.78)}
+.stat.hero .go{background:rgba(255,255,255,.16);color:#fff}
+.stat.hero .cap{color:rgba(255,255,255,.62)}
+.stat.hero .delta.up{background:rgba(255,255,255,.92);color:var(--success)}
+.stat.hero .delta.flat{background:rgba(255,255,255,.2);color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 
-  /* ---------- add form ---------- */
-  .form{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}
-  .form label{display:block;font-size:13px;font-weight:700;color:var(--mut);margin:14px 0 6px}
-  .form label:first-of-type{margin-top:0}
-  .form input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);
-    padding:14px;border-radius:13px;font-size:16px;min-height:52px}
-  .form input:focus{outline:none;border-color:var(--amber)}
-  .form .btn{width:100%;margin-top:18px}
+/* ============ tables (order-list style) ============ */
+.tblwrap{background:var(--surface);border-radius:var(--r-card);
+  box-shadow:var(--shadow-card);overflow:hidden}
+table.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--text-3);text-align:left;padding:14px 18px 10px;white-space:nowrap}
+.tbl td{padding:13px 18px;border-top:1px solid var(--border);vertical-align:middle}
+.tbl tbody tr{cursor:pointer}
+.tbl tbody tr:hover{background:var(--surface-2)}
+.tbl td.r,.tbl th.r{text-align:right}
+.tbl .mono{font-size:12px}
 
-  /* ---------- skeleton ---------- */
-  .sk{position:relative;overflow:hidden;background:var(--card2);border-radius:10px;min-height:20px}
-  .sk::after{content:"";position:absolute;inset:0;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);
-    animation:sh 1.3s infinite}
-  @keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+/* ============ pills ============ */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+  border-radius:999px;padding:4px 11px;white-space:nowrap}
+.pill .pdot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.p-green{background:var(--success-tint);color:var(--success)}
+.p-amber{background:var(--warning-tint);color:var(--warning)}
+.p-red{background:var(--danger-tint);color:var(--danger)}
+.p-blue{background:var(--info-tint);color:var(--info)}
+.p-violet{background:var(--violet-tint);color:var(--violet)}
+.p-grey{background:var(--slate-tint);color:var(--text-2)}
+.p-accent{background:var(--accent-tint);color:var(--accent)}
 
-  footer{color:var(--mut2);font-size:12px;text-align:center;margin:26px 0 6px}
-  .fab{position:fixed;right:16px;bottom:calc(96px + var(--sab));z-index:39;width:58px;height:58px;
-    border-radius:50%;border:none;background:linear-gradient(135deg,var(--amber),#d97a00);
-    font-size:26px;color:#141414;cursor:pointer;box-shadow:0 8px 22px rgba(245,166,35,.35)}
-  @media(min-width:900px){.fab{display:none}}
-  .fab:active{transform:scale(.93)}
+/* ============ filter bar ============ */
+.fbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.searchbox{display:flex;align-items:center;gap:8px;background:var(--surface);
+  border-radius:999px;padding:9px 16px;min-width:220px;box-shadow:var(--shadow-card)}
+.searchbox input{border:0;outline:0;background:none;width:100%;font-size:13px}
+.searchbox svg{color:var(--text-3);flex:none}
+.segtabs{display:flex;gap:2px;background:var(--surface);border-radius:999px;padding:4px;
+  box-shadow:var(--shadow-card)}
+.segtabs button{border:0;background:none;font-size:12px;font-weight:700;color:var(--text-2);
+  padding:7px 14px;border-radius:999px;white-space:nowrap}
+.segtabs button.on{background:var(--ink);color:#fff}
+.segtabs button .n{opacity:.6;font-weight:500;margin-left:4px}
+select.ctl,input.ctl,textarea.ctl{background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-ctl);padding:9px 13px;font-size:13px;color:var(--ink);outline:none}
+select.ctl:focus,input.ctl:focus,textarea.ctl:focus{border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-tint)}
+label.fld{display:block;font-size:12px;font-weight:700;color:var(--text-2);margin:0 0 6px}
+.frow{margin-bottom:12px}
+/* toggle switch */
+.switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:500}
+.switch input{display:none}
+.switch span{width:38px;height:22px;border-radius:11px;background:#d4d4d4;position:relative;transition:background .18s ease;flex:none}
+.switch span::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .18s ease;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.switch input:checked+span{background:var(--accent)}
+.switch input:checked+span::after{left:19px}
+/* numbered steps */
+ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;line-height:1.55;color:var(--text-2)}
+ol.steps b{color:var(--ink);font-weight:600}
+
+/* ============ charts ============ */
+.bars{display:flex;align-items:flex-end;gap:8px;height:170px;padding-top:8px}
+.bars .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+.bars .bar{width:100%;max-width:30px;border-radius:8px 8px 4px 4px;
+  background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#fff));min-height:5px}
+.bars .blab{font-size:9px;color:var(--text-3);font-family:var(--font-mono)}
+.donutwrap{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.donut{width:150px;height:150px;border-radius:50%;flex:none;position:relative}
+.donut::after{content:'';position:absolute;inset:26px;background:var(--surface);border-radius:50%}
+.dcent{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:22px;letter-spacing:-.02em;z-index:1}
+.dlegend{display:flex;flex-direction:column;gap:9px;font-size:12.5px;min-width:0}
+.dlegend .li{display:flex;align-items:center;gap:9px;color:var(--text-2)}
+.dlegend .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.dlegend .n{margin-left:auto;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;padding-left:14px}
+
+/* ============ drawer ============ */
+.scrim{position:fixed;inset:0;background:rgba(16,20,32,.45);z-index:60;
+  opacity:0;pointer-events:none;transition:opacity .2s ease}
+.scrim.show{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:500px;max-width:94vw;z-index:61;
+  background:var(--surface);box-shadow:var(--shadow-pop);border-radius:22px 0 0 22px;
+  transform:translateX(102%);transition:transform .24s ease-out;
+  display:flex;flex-direction:column}
+.drawer.show{transform:none}
+.dhead{padding:20px 22px 0;flex:none}
+.dhead .trow{display:flex;align-items:flex-start;gap:10px}
+.dhead h2{font-size:18px;font-weight:800;letter-spacing:-.01em}
+.dhead .sub{font-size:12px;color:var(--text-2);margin-top:2px}
+.dbody{flex:1;overflow-y:auto;padding:20px 22px 28px}
+.dactions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.dtabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:16px -22px 0;padding:0 22px}
+.dtabs button{border:0;background:none;font-size:13px;font-weight:700;color:var(--text-2);
+  padding:10px 4px;margin-right:18px;border-bottom:2px solid transparent}
+.dtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* property grid (HubSpot "About") */
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.pitem .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);margin-bottom:2px}
+.pitem .v{font-size:13px;font-weight:600}
+.pitem .v.empty{color:var(--text-3);font-weight:400}
+
+/* timeline rail */
+.tl{position:relative;padding-left:22px}
+.tl:before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--border)}
+.tlitem{position:relative;padding:0 0 18px}
+.tlitem .tdot{position:absolute;left:-21px;top:4px;width:12px;height:12px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--text-3)}
+.tlitem.k-call .tdot{border-color:var(--info)}
+.tlitem.k-stage .tdot{border-color:var(--accent)}
+.tlitem.k-task .tdot{border-color:var(--warning)}
+.tlitem.k-note .tdot{border-color:var(--text-3)}
+.tlitem .tt{font-size:13px;font-weight:700}
+.tlitem .td{font-size:12px;color:var(--text-2);margin-top:2px}
+.tlitem .ts{font-size:11px;color:var(--text-3);font-family:var(--font-mono);margin-top:2px}
+
+/* transcript bubbles */
+.tr{display:flex;flex-direction:column;gap:8px}
+.bub{max-width:88%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.5}
+.bub.agent{background:var(--surface-2);align-self:flex-start}
+.bub.lead{background:var(--accent-tint);align-self:flex-end}
+
+/* kanban — status cards with tinted header bands (order-list style) */
+.kwrap{display:flex;gap:14px;overflow-x:auto;padding:4px 2px 14px;align-items:flex-start}
+.kcol{flex:0 0 280px;background:var(--surface);border-radius:var(--r-card);
+  box-shadow:var(--shadow-card);overflow:hidden;max-height:calc(100vh - 240px);
+  display:flex;flex-direction:column}
+.kchead{padding:14px 16px 12px}
+.kchead .nm{font-size:12px;font-weight:700}
+.kchead .big{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+.kchead .ct{font-size:11px;font-weight:600;opacity:.75}
+.kcards{overflow-y:auto;display:flex;flex-direction:column;gap:10px;min-height:40px;padding:12px}
+.kcard{background:var(--surface-2);border-radius:14px;padding:13px 14px;cursor:pointer;
+  transition:transform .12s ease}
+.kcard:hover{transform:translateY(-1px)}
+.kcard.stale{background:#FFF8EC}
+.kcard.vstale{background:#FFF2F2}
+.kcard .kn{font-size:13px;font-weight:700}
+.kcard .kp{font-size:11px;color:var(--text-2);font-family:var(--font-mono);margin-top:2px}
+.kcard .krow{display:flex;align-items:center;gap:6px;margin-top:9px}
+.scorebadge{font-size:11px;font-weight:800;border-radius:7px;padding:2px 8px;font-variant-numeric:tabular-nums}
+.s-hi{background:var(--success-tint);color:var(--success)}
+.s-md{background:var(--warning-tint);color:var(--warning)}
+.s-lo{background:var(--slate-tint);color:var(--text-2)}
+.agebadge{font-size:10px;font-weight:700;color:var(--text-2)}
+.kcard.stale .agebadge{color:var(--warning)}
+.kcard.vstale .agebadge{color:var(--danger)}
+
+/* analysis blocks */
+.ana{background:var(--surface-2);border-radius:14px;padding:15px 17px;margin-bottom:12px}
+.ana .ak{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:6px}
+.ana .av{font-size:13px}
+.about{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px}
+.arow{display:flex;flex-direction:column;gap:2px;min-width:0}
+.arow .ak{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)}
+.arow .av{font-size:13px;overflow:hidden;text-overflow:ellipsis}
+.factgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.fact .fk{font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.fact .fv{font-size:13px;font-weight:700}
+.talkbar{height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:6px}
+.talkbar i{display:block;height:100%;background:var(--accent)}
+.src-tag{font-size:10px;font-weight:700;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase}
+
+/* modal */
+.modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;padding:16px}
+.modal.show{display:flex}
+.modal .mbox{background:var(--surface);border-radius:20px;box-shadow:var(--shadow-pop);
+  width:460px;max-width:100%;padding:26px;position:relative;z-index:1}
+.modal h3{font-size:17px;font-weight:800;margin-bottom:4px;letter-spacing:-.01em}
+.modal .msub{font-size:13px;color:var(--text-2);margin-bottom:16px}
+
+/* toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--ink);color:#fff;font-size:13px;font-weight:600;border-radius:12px;
+  padding:11px 20px;z-index:100;opacity:0;pointer-events:none;transition:all .2s ease;
+  max-width:90vw;box-shadow:var(--shadow-pop)}
+.toast.show{opacity:1;transform:translateX(-50%)}
+
+/* empty state */
+.empty{text-align:center;padding:48px 20px;color:var(--text-2)}
+.empty .et{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px}
+.empty p{font-size:13px;margin-bottom:16px}
+
+/* skeleton */
+.sk{position:relative;overflow:hidden;background:var(--surface-2);border-radius:10px;color:transparent!important}
+.sk *{visibility:hidden}
+.sk:after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);
+  animation:shim 1.2s infinite}
+@keyframes shim{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* misc */
+.rowflex{display:flex;align-items:center;gap:8px}
+.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt24{margin-top:24px}
+.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}
+.small{font-size:12px;color:var(--text-2)}
+.hr{border:0;border-top:1px solid var(--border);margin:16px 0}
+.taskrow{display:flex;align-items:flex-start;gap:10px;padding:13px 2px;border-bottom:1px solid var(--border)}
+.taskrow:last-child{border-bottom:0}
+.taskrow.done .tt{text-decoration:line-through;color:var(--text-3)}
+.cbox{width:20px;height:20px;border-radius:7px;border:1.5px solid var(--border-strong,#D5DBE5);
+  background:var(--surface);flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;color:#fff}
+.taskrow.done .cbox{background:var(--accent);border-color:var(--accent)}
+.overdue{color:var(--danger);font-weight:700}
+.funnel{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:22px}
+.fstep{background:var(--surface);border-radius:14px;box-shadow:var(--shadow-card);
+  padding:13px 10px;text-align:center;min-width:0}
+.fstep .fv{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.fstep .fl{font-size:9.5px;color:var(--text-2);font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+
+@media (max-width:1100px){
+  .funnel{grid-template-columns:repeat(4,1fr)}
+}
+@media (max-width:900px){
+  .side{display:none}
+  .tdate{display:none}
+  .tsearch{min-width:0}
+  .main{padding-bottom:78px}
+  .page{padding:18px 16px 30px}
+  .topbar{padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top))}
+  .bnav{display:grid}
+  .greet h1{font-size:24px}
+  .stats{grid-template-columns:1fr 1fr;gap:12px}
+  .stat{padding:16px}
+  .stat .val{font-size:25px}
+  .grid2{grid-template-columns:1fr}
+  .drawer{top:auto;left:0;right:0;bottom:0;width:auto;max-width:none;
+    max-height:92vh;border-radius:20px 20px 0 0;transform:translateY(102%)}
+  .drawer.show{transform:none}
+  .grab{width:40px;height:4px;border-radius:2px;background:var(--border);margin:10px auto 0}
+  .tbl th:nth-child(n+4),.tbl td:nth-child(n+4){display:none}
+  .funnel{grid-template-columns:repeat(4,1fr)}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
 </style>
+
 </head>
 <body>
-
-<header class="topbar">
-  <div class="topbar-in">
-    <div class="brand">
-      <div class="logo">☀️</div>
-      <div style="min-width:0">
-        <h1>AB Solar</h1>
-        <p>Priya voice agent</p>
-      </div>
-      <span class="modebadge demo" id="modeBadge" style="margin-left:6px">…</span>
-    </div>
-    <nav class="desknav" id="deskNav">
-      <button class="dnav on" data-t="home">Home</button>
-      <button class="dnav" data-t="calls">Calls</button>
-      <button class="dnav" data-t="leads">Leads</button>
-      <button class="dnav" data-t="add">Add lead</button>
+<div class="app">
+  <!-- desktop icon rail -->
+  <aside class="side">
+    <button class="brandmark" id="brandMark" onclick="openCompanyModal()" title="Switch company">A</button>
+    <nav class="nav" id="sideNav" style="margin-top:14px">
+      <button class="navitem" data-v="dash" title="Dashboard"><i data-ic="dash"></i><span class="nlab">Dashboard</span></button>
+      <button class="navitem" data-v="pipe" title="Pipeline"><i data-ic="kanban"></i><span class="nlab">Pipeline</span></button>
+      <button class="navitem" data-v="leads" title="Leads"><i data-ic="users"></i><span class="nlab">Leads</span></button>
+      <button class="navitem" data-v="calls" title="Calls"><i data-ic="phone"></i><span class="nlab">Calls</span></button>
+      <button class="navitem" data-v="agent" title="Agent"><i data-ic="sliders"></i><span class="nlab">Agent</span></button>
+      <button class="navitem" data-v="tasks" title="Follow-ups"><i data-ic="tasks"></i><span class="nlab">Follow-ups</span><span class="cnt" id="navTaskCnt" hidden></span></button>
+      <button class="navitem" data-v="billing" title="Billing"><i data-ic="wallet"></i><span class="nlab">Billing</span></button>
+      <button class="navitem" data-v="integrations" title="Integrations"><i data-ic="link"></i><span class="nlab">Integrations</span></button>
     </nav>
-    <div class="top-actions">
-      <span class="balpill" id="balPill" title="Speko balance">₹…</span>
-      <span class="syncpill" id="syncPill"><span class="spin" id="syncSpin" style="display:none"></span><span id="syncTxt">…</span></span>
-      <button class="iconbtn" id="refreshBtn" title="Sync now">↻</button>
+    <div class="sidefoot">
+      <button class="railbtn" onclick="openDialer()" title="Call now"><i data-ic="phone"></i></button>
     </div>
-  </div>
-</header>
+  </aside>
 
-<main>
-  <section id="v-home">
-    <div class="hero">
-      <div class="k">Speko balance · credits</div>
-      <div class="big" id="hBal">₹…</div>
-      <div class="sub" id="hBalSub">…</div>
-      <div class="warn" id="hBalWarn" style="display:none">⚠️ Balance running low — top up Speko so calling never stops mid-campaign.</div>
+  <div class="main">
+    <!-- top bar -->
+    <div class="topbar">
+      <div class="tsearch"><i data-ic="search"></i><input id="gq" placeholder="Search leads…" autocomplete="off"></div>
+      <div class="tdate" id="tdate"></div>
+      <span style="flex:1"></span>
+      <span class="pill p-accent mono" id="mBal" style="box-shadow:var(--shadow-card)"></span>
+      <button class="iconbtn" onclick="go('tasks')" title="Follow-ups"><i data-ic="bell"></i></button>
+      <button class="iconbtn" onclick="openDialer()" title="Call now"><i data-ic="phone"></i></button>
+      <button class="cavatar" id="mBrandMark" onclick="openCompanyModal()" title="Switch company">A</button>
     </div>
-    <div class="stats-grid" id="statsGrid"></div>
-    <div class="grid2">
-      <div class="card">
-        <h3>Call spend · last 14 days</h3>
-        <div class="hint">Cost of Priya's calls per day (₹)</div>
-        <div class="chart" id="spendChart"></div>
-      </div>
-      <div class="card">
-        <h3>Where the money goes</h3>
-        <div class="hint">Speko usage split by provider</div>
-        <div id="provSplit"></div>
-      </div>
-    </div>
-    <div class="grid2">
-      <div class="card">
-        <h3>Agent</h3>
-        <div class="hint">Voice agent configuration</div>
-        <div id="agentCard"></div>
-      </div>
-      <div class="card">
-        <h3>Recent calls</h3>
-        <div class="hint">Latest conversations</div>
-        <div id="recentCalls"></div>
-      </div>
-    </div>
-  </section>
 
-  <section id="v-calls" hidden>
-    <div class="toolbar"><input id="q" placeholder="Search name / phone…" autocomplete="off"></div>
-    <div class="chips" id="callChips"></div>
-    <div class="mcards" id="callsCards"></div>
-    <table class="dtable"><thead><tr><th>Time</th><th>Lead</th><th>Duration</th><th>Outcome</th><th>Cost</th><th></th></tr></thead><tbody id="callsBody"></tbody></table>
-    <div class="empty" id="callsEmpty" style="display:none">No calls match.</div>
-  </section>
-
-  <section id="v-leads" hidden>
-    <div class="toolbar"><input id="q2" placeholder="Search name / phone…" autocomplete="off"></div>
-    <div class="chips" id="leadChips"></div>
-    <div class="mcards" id="leadsCards"></div>
-    <table class="dtable"><thead><tr><th>Lead</th><th>Phone</th><th>Source</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="leadsBody"></tbody></table>
-    <div class="empty" id="leadsEmpty" style="display:none">No leads match.</div>
-  </section>
-
-  <section id="v-add" hidden>
-    <div class="form" style="max-width:520px">
-      <h3 style="margin-bottom:4px">Add a lead</h3>
-      <div class="mut" style="margin-bottom:6px">Saved instantly. Priya can call them from the Calls tab.</div>
-      <label for="f-name">Name</label>
-      <input id="f-name" placeholder="e.g. Srinivas Rao" autocomplete="off">
-      <label for="f-phone">Phone</label>
-      <input id="f-phone" placeholder="+91…" inputmode="tel" autocomplete="off">
-      <label for="f-campaign">Campaign <span class="mut">(optional)</span></label>
-      <input id="f-campaign" placeholder="e.g. Rooftop Solar – Miyapur" autocomplete="off">
-      <button class="btn" id="addBtn">Save lead</button>
-    </div>
-  </section>
-</main>
-
-<button class="fab" id="fab" title="Add lead">＋</button>
-
-<nav class="bottomnav" id="bottomNav">
-  <button class="bnav on" data-t="home"><span class="ic">🏠</span>Home</button>
-  <button class="bnav" data-t="calls"><span class="ic">📞</span>Calls</button>
-  <button class="bnav" data-t="leads"><span class="ic">👥</span>Leads</button>
-  <button class="bnav" data-t="add"><span class="ic">➕</span>Add</button>
-</nav>
-
-<div class="sheet-wrap" id="sheetWrap">
-  <div class="sheet" role="dialog" aria-modal="true">
-    <div class="grab"></div>
-    <button class="closebtn" id="sheetClose">✕</button>
-    <h2 id="m-title">Call detail</h2>
-    <div class="sub" id="m-sub"></div>
-    <div id="m-pill"></div>
-    <div class="summary" id="m-summary" style="display:none"></div>
-    <div id="m-cost"></div>
-    <div id="m-audio"></div>
-    <div class="turns" id="m-turns"></div>
+    <div class="page" id="page"></div>
   </div>
 </div>
 
-<footer>Built by REvorax for AB Solar Power Systems · Gachibowli, Hyderabad</footer>
+<!-- mobile bottom nav -->
+<nav class="bnav" id="bnav">
+  <button data-v="dash"><i data-ic="dash"></i>Home</button>
+  <button data-v="pipe"><i data-ic="kanban"></i>Pipeline</button>
+  <button data-v="leads"><i data-ic="users"></i>Leads</button>
+  <button data-v="calls"><i data-ic="phone"></i>Calls</button>
+  <button data-v="agent"><i data-ic="sliders"></i>Agent</button>
+  <button data-v="tasks"><i data-ic="tasks"></i>Tasks</button>
+</nav>
+
+<!-- drawer -->
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <div class="dhead" id="dhead"></div>
+  <div class="dbody" id="dbody"></div>
+</aside>
+
+<!-- dialer modal -->
+<div class="modal" id="dialModal">
+  <div class="scrim show" onclick="closeModal('dialModal')"></div>
+  <div class="mbox">
+    <h3>Place a call</h3>
+    <div class="msub" id="dialSub">Priya calls from <b class="mono" id="dialFrom"></b></div>
+    <div class="frow"><label class="fld">Phone number</label>
+      <input class="ctl" id="dialNum" style="width:100%" placeholder="+91 …" inputmode="tel"></div>
+    <div class="frow"><label class="fld">Lead (optional)</label>
+      <select class="ctl" id="dialLead" style="width:100%"><option value="">— none —</option></select></div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal('dialModal')">Cancel</button>
+      <button class="btn primary" id="dialGo" onclick="doDial()"><i data-ic="phone"></i>Call now</button>
+    </div>
+  </div>
+</div>
+
+<!-- company modal -->
+<div class="modal" id="coModal">
+  <div class="scrim show" onclick="closeModal('coModal')"></div>
+  <div class="mbox">
+    <h3>Companies</h3>
+    <div class="msub">Each company has its own leads, pipeline, agent and billing.</div>
+    <div id="coList"></div>
+  </div>
+</div>
+
+<!-- add lead modal -->
+<div class="modal" id="leadModal">
+  <div class="scrim show" onclick="closeModal('leadModal')"></div>
+  <div class="mbox">
+    <h3>Add lead</h3>
+    <div class="msub">Saved to <b id="leadModalCo"></b>.</div>
+    <div class="grid2" style="gap:12px">
+      <div class="frow"><label class="fld">Name</label><input class="ctl" id="nlName" style="width:100%"></div>
+      <div class="frow"><label class="fld">Phone *</label><input class="ctl" id="nlPhone" style="width:100%" inputmode="tel"></div>
+    </div>
+    <div class="grid2" style="gap:12px">
+      <div class="frow"><label class="fld">Source</label>
+        <select class="ctl" id="nlSource" style="width:100%">
+          <option value="manual">Manual</option><option value="facebook">Facebook</option>
+          <option value="google">Google</option><option value="walkin">Walk-in</option>
+        </select></div>
+      <div class="frow"><label class="fld">Monthly bill (₹)</label><input class="ctl" id="nlBill" style="width:100%" inputmode="numeric"></div>
+    </div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:8px">
+      <button class="btn" onclick="closeModal('leadModal')">Cancel</button>
+      <button class="btn primary" onclick="doAddLead()">Add lead</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script>
 "use strict";
+/* ================= icons (Feather/Lucide style, stroke) ================= */
+const P={
+phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+msg:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+'chev-r':'<polyline points="9 18 15 12 9 6"/>',
+'chev-d':'<polyline points="6 9 12 15 18 9"/>',
+check:'<polyline points="20 6 9 17 4 12"/>',
+clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+users:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+pin:'<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+warn:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+trend:'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+sliders:'<line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2.2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="7" cy="17" r="2.2"/>',
+file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+cal:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+wallet:'<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+dash:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+kanban:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9.5" y1="3" x2="9.5" y2="21"/><line x1="14.5" y1="3" x2="14.5" y2="21"/>',
+tasks:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+play:'<polygon points="5 3 19 12 5 21 5 3"/>',
+mic:'<rect x="9" y="2" width="6" height="12" rx="3" ry="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/>',
+star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+bell:'<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+'arrow-tr':'<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>'
+};
+function ic(n,s){s=s||16;return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${P[n]||''}</svg>`}
+function hydrateIcons(root){(root||document).querySelectorAll('[data-ic]').forEach(el=>{el.innerHTML=ic(el.dataset.ic, el.dataset.ic==='chev-d'?14:18);el.style.display='inline-flex';el.style.verticalAlign='-3px'})}
+
+/* ================= helpers ================= */
 const $=id=>document.getElementById(id);
-let LEADS=[],CALLS=[],DAILY=[],BILL=null,AGENT=null,NUMBERS=[],DEMO=true,tab='home';
-let callFilter='',leadFilter='',q='',q2='';
-const PILL={qualified:'p-qualified',callback:'p-callback',not_interested:'p-not_interested',
-  no_answer:'p-no_answer',new:'p-new',called:'p-called',other:'p-other',
-  needs_enrichment:'p-needs_enrichment',connected:'p-callback'};
-const LABEL={qualified:'Qualified',callback:'Callback',not_interested:'Not interested',
-  no_answer:'No answer',new:'New',called:'Called',other:'—',needs_enrichment:'Incoming',
-  connected:'Connected'};
-const MLABEL={session_seconds:'Phone line',tts_characters:'Voice (TTS)',stt_seconds:'Speech-to-text',
-  llm_tokens:'AI brain (LLM)',post_call_analysis_tokens:'Call analysis'};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+const mmss=s=>{s=Math.round(s||0);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const fdate=iso=>{if(!iso)return'—';const d=new Date(iso);return d.toLocaleDateString('en-IN',{day:'numeric',month:'short'})+', '+d.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})};
+const fday=iso=>{if(!iso)return'—';return new Date(iso).toLocaleDateString('en-IN',{day:'numeric',month:'short'})};
+const ago=iso=>{if(!iso)return'never';const m=(Date.now()-new Date(iso))/60000;if(m<1)return'just now';if(m<60)return Math.floor(m)+'m ago';const h=m/60;if(h<24)return Math.floor(h)+'h ago';return Math.floor(h/24)+'d ago'};
+const waNum=p=>String(p||'').replace(/\D/g,'').replace(/^0+/,'');
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2600)}
+async function api(p,opt){const r=await fetch(p,opt);if(!r.ok){let m='';try{m=(await r.json()).detail||''}catch(e){}throw new Error(m||('HTTP '+r.status))}return r.json()}
 
-const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-const inr=n=>('₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:n<100?1:0}));
-const fmtDur=s=>{s=+s||0;return s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s'};
-const fmtTime=t=>{if(!t)return '—';const d=new Date(t);
-  return isNaN(d)?'—':d.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})};
-const timeAgo=t=>{if(!t)return '';const s=(Date.now()-new Date(t))/1e3;
-  if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+'m ago';
-  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago'};
-const pill=st=>{st=st||'other';return `<span class="pill ${PILL[st]||'p-other'}">${LABEL[st]||esc(st)}</span>`};
-async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error(p+' '+r.status);return r.json()}
+/* ================= state ================= */
+let CO=null, COMPANIES=[], VIEW='dash', DEMO=false;
+let KPIS=null, BILL=null;
+const STAGE_LABEL={new:'New',contacting:'Contacting',qualified:'Qualified',survey_scheduled:'Survey scheduled',survey_done:'Survey done',proposal_sent:'Proposal sent',negotiation:'Negotiation',won:'Won',nurture:'Nurture',lost:'Lost'};
+const STAGE_PILL={new:'p-grey',contacting:'p-blue',qualified:'p-green',survey_scheduled:'p-accent',survey_done:'p-accent',proposal_sent:'p-amber',negotiation:'p-amber',won:'p-green',nurture:'p-grey',lost:'p-red'};
+const INTENT_LABEL={buying:'Buying intent',curious:'Curious',callback:'Callback',not_interested:'Not interested',unknown:'Unknown'};
+const INTENT_PILL={buying:'p-green',curious:'p-blue',callback:'p-amber',not_interested:'p-red',unknown:'p-grey'};
+const DISP_LABEL={'qualified_survey':'Qualified – survey booked','qualified_callback':'Qualified – callback requested','interested_followup':'Interested – follow-up','not_interested_price':'Not interested – price','not_interested_roof':'Not interested – no roof','not_interested_timing':'Not interested – timing','wrong_number':'Wrong number','dnc':'Do not call','no_answer':'No answer','busy':'Busy','failed':'Failed'};
 
-/* ---------------- skeleton ---------------- */
-function skeleton(){
-  $('statsGrid').innerHTML='<div class="sk" style="min-height:92px"></div>'.repeat(4);
-  $('spendChart').innerHTML='<div class="sk" style="height:130px"></div>';
-  $('provSplit').innerHTML='<div class="sk" style="height:120px"></div>';
-  $('agentCard').innerHTML='<div class="sk" style="height:110px"></div>';
-  $('recentCalls').innerHTML='<div class="sk" style="height:150px"></div>';
+function setCompany(c){
+  CO=c;
+  document.documentElement.style.setProperty('--accent',c.primary_color||'#15803D');
+  document.documentElement.style.setProperty('--accent-tint',(c.primary_color||'#15803D')+'1f');
+  const short=c.name.replace(/ power systems/i,'').replace(/ systems/i,'').trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  $('brandMark').textContent=short;$('mBrandMark').textContent=short;
+  $('brandMark').style.background=c.primary_color||'#15803D';$('mBrandMark').style.background=c.primary_color||'#15803D';
+  $('brandMark').title=c.name+' — switch company';$('mBrandMark').title=c.name+' — switch company';
+  localStorage.setItem('crm_company',c.id);
 }
+function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
-/* ---------------- load ---------------- */
-async function safe(p,fb){try{return await api(p)}catch(e){return fb}}
-async function load(){
-  skeleton();
-  let h; try{ h=await api('/api/health'); }catch(e){
-    $('statsGrid').innerHTML='<div class="empty">Could not reach the server. Tap ↻ to retry.</div>';return; }
-  DEMO=h.demo_mode;
-  const mb=$('modeBadge');
-  mb.textContent=DEMO?'DEMO DATA':'● LIVE'; mb.className='modebadge '+(DEMO?'demo':'live');
-  const [s,b,le,ca,da,ag,nu]=await Promise.all([
-    safe('/api/stats',null),safe('/api/billing',null),safe('/api/leads',[]),
-    safe('/api/calls',[]),safe('/api/usage/daily',[]),safe('/api/agent',null),
-    safe('/api/numbers',[])]);
-  if(!s){ $('statsGrid').innerHTML='<div class="empty">Could not load data. Tap ↻ to retry.</div>';return; }
-  BILL=b;LEADS=le;CALLS=ca;DAILY=da;AGENT=ag;NUMBERS=nu;
-  renderAll(s); setSyncPill(h);
-  // background sync: fresh Speko data without blocking the UI
-  if(!DEMO){ try{ await fetch('/api/sync',{method:'POST'}); }catch(e){} pollSync(); }
+/* ================= router ================= */
+const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,agent:renderAgent,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
+function go(v){VIEW=v;
+  document.querySelectorAll('#sideNav .navitem').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  (VIEWS[v]||renderDash)();
 }
-async function pollSync(){
-  for(let i=0;i<40;i++){
-    await new Promise(r=>setTimeout(r,4000));
-    try{ const st=await api('/api/sync/status'); setSyncPill(st);
-      if(!st.running){
-        const [s,ca,da]=await Promise.all([api('/api/stats'),api('/api/calls'),api('/api/usage/daily')]);
-        CALLS=ca;DAILY=da;renderAll(s);return;
-      }
-    }catch(e){return}
-  }
+document.querySelectorAll('#sideNav .navitem').forEach(b=>b.onclick=()=>go(b.dataset.v));
+document.querySelectorAll('#bnav button').forEach(b=>b.onclick=()=>go(b.dataset.v));
+
+function phead(crumb,title,meta,actions){
+  return `<div class="crumb">${crumb}</div>
+  <div class="phead"><div><h1>${title}</h1><div class="pmeta">${meta}</div></div>
+  <div class="pactions">${actions||''}</div></div>`;
 }
-function setSyncPill(st){
-  const running=st.sync_running||st.running;
-  $('syncSpin').style.display=running?'':'none';
-  const ls=st.last_sync;
-  $('syncTxt').textContent=running?'Syncing…':(ls?('Synced '+timeAgo(ls)):'Not synced yet');
+function scoreBadge(s){s=s||0;const c=s>=70?'s-hi':s>=40?'s-md':'s-lo';return `<span class="scorebadge ${c}">${s}</span>`}
+function stagePill(s){s=s||'new';return `<span class="pill ${STAGE_PILL[s]||'p-grey'}"><span class="pdot"></span>${STAGE_LABEL[s]||s}</span>`}
+function ageOf(iso){if(!iso)return'';const d=Math.floor((Date.now()-new Date(iso))/86400000);return d<=0?'today':d===1?'1d ago':d+'d ago'}
+function kcardClass(iso){if(!iso)return'';const d=(Date.now()-new Date(iso))/86400000;return d>14?'vstale':d>7?'stale':''}
+
+/* ================= dashboard ================= */
+async function renderDash(){
+  const pg=$('page');
+  const hr=new Date().getHours();
+  const greet=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
+  pg.innerHTML=
+  `<div class="greet"><div><h1>${greet}!</h1>
+   <div class="gsub" id="dashSub">Here's what's happening at <b>${esc(CO.name)}</b>.</div></div>
+   <div class="pactions">
+     <button class="btn sm" onclick="refreshAll()">${ic('refresh',14)} Sync</button>
+     <button class="btn sm dark" onclick="openLeadModal()">${ic('plus',14)} Add lead</button>
+   </div></div>`+
+  `<div class="stats" id="dashStats">${'<div class="stat"><div class="sk" style="height:118px"></div></div>'.repeat(4)}</div>
+   <div class="grid2 section">
+     <div class="card"><div class="chead"><div class="ctitle">Calls</div><span class="small" style="margin-left:auto">last 14 days</span></div><div id="dashBars"><div class="sk" style="height:170px"></div></div></div>
+     <div class="card"><div class="chead"><div class="ctitle">Call outcomes</div><span class="small" style="margin-left:auto">all time</span></div><div id="dashDonut"><div class="sk" style="height:170px"></div></div></div>
+   </div>
+   <div class="section"><div class="card"><div class="chead"><div class="ctitle">Pipeline</div></div><div class="funnel" id="dashFunnel"></div></div></div>
+   <div class="grid2">
+     <div class="section"><div class="card"><div class="chead"><div class="ctitle">Follow-ups due</div></div><div id="dashTasks"></div></div></div>
+     <div class="section"><div class="card"><div class="chead"><div class="ctitle">Recent calls</div></div><div id="dashCalls"></div></div></div>
+   </div>`;
+  try{
+    const [k,b,tasks,calls]=await Promise.all([
+      api(cq('/api/kpis')),api('/api/billing').catch(()=>null),
+      api(cq('/api/tasks?filter=today')),api(cq('/api/calls')).catch(()=>[])]);
+    KPIS=k;BILL=b;
+    const upd=k.demo_mode?'demo data':'live';
+    $('dashSub').innerHTML=`Here's what's happening at <b>${esc(CO.name)}</b> · ${k.leads} leads · ${k.dials} dials · ${upd}`;
+    const cards=[
+      {cls:'hero',lbl:'Qualified leads',val:k.qualified,d:'up',dt:k.qualify_rate+'% of connects',cap:'from answered calls',go:'pipe'},
+      {lbl:'Connect rate',val:k.connect_rate+'%',d:'flat',dt:k.connected+' of '+k.dials+' dials',cap:'outbound dials',go:'calls'},
+      {lbl:'Cost / qualified',val:inr(k.cost_per_qualified),d:'flat',dt:'total '+inr(k.spend_inr),cap:'speko spend',go:'billing'},
+      {lbl:'Follow-ups due',val:k.tasks_due,d:k.tasks_due>0?'down':'flat',dt:k.stale_deals+' stale deals',cap:'needs attention',go:'tasks'},
+    ];
+    $('dashStats').innerHTML=cards.map(s=>`<div class="stat ${s.cls||''}">
+      <button class="go" onclick="go('${s.go}')" aria-label="open">${ic('arrow-tr',15)}</button>
+      <div class="lbl">${s.lbl}</div><div class="val">${s.val}</div>
+      <span class="delta ${s.d}">${s.dt}</span><div class="cap">${s.cap}</div></div>`).join('');
+    // calls per day, last 14 days
+    const dayKeys=[];for(let i=13;i>=0;i--){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-i);dayKeys.push(d.toISOString().slice(0,10))}
+    const per={};dayKeys.forEach(d=>per[d]=0);
+    calls.forEach(c=>{const d=(c.started_at||'').slice(0,10);if(d in per)per[d]++});
+    const mx=Math.max(...Object.values(per),1);
+    $('dashBars').innerHTML=`<div class="bars">`+dayKeys.map(d=>{
+      const v=per[d],h=Math.max(4,Math.round(v/mx*130));
+      return `<div class="bcol" title="${v} calls · ${d}"><div class="bar" style="height:${h}px;${v?'':'background:var(--border)'}"></div><div class="blab">${d.slice(8)}</div></div>`}).join('')+`</div>`;
+    // outcomes donut
+    const groups=[['Qualified','var(--success)',0],['Interested','var(--info)',0],['Not interested','var(--danger)',0],['No answer / busy','var(--warning)',0],['Other','var(--text-3)',0]];
+    calls.forEach(c=>{const d=c.disposition||'';
+      let i=4;
+      if(d.startsWith('qualified'))i=0;
+      else if(d==='interested_followup')i=1;
+      else if(d.startsWith('not_interested')||d==='dnc'||d==='wrong_number')i=2;
+      else if(['no_answer','busy','failed'].includes(d))i=3;
+      groups[i][2]++});
+    const tot=groups.reduce((a,g)=>a+g[2],0);
+    let acc=0;const segs=groups.filter(g=>g[2]>0).map(g=>{const p0=acc/tot*100;acc+=g[2];const p1=acc/tot*100;return `${g[1]} ${p0}% ${p1}%`});
+    const bg=tot?`conic-gradient(${segs.join(',')})`:'var(--border)';
+    $('dashDonut').innerHTML=`<div class="donutwrap"><div class="donut" style="background:${bg}"><div class="dcent">${tot}</div></div>
+      <div class="dlegend">${tot?groups.filter(g=>g[2]>0).map(g=>`<div class="li"><span class="sw" style="background:${g[1]}"></span>${g[0]}<span class="n">${g[2]}</span></div>`).join(''):'<div class="small">No calls yet.</div>'}</div></div>`;
+    const order=['new','contacting','qualified','survey_scheduled','survey_done','proposal_sent','negotiation','won'];
+    $('dashFunnel').innerHTML=order.map(s=>`<div class="fstep"><div class="fv">${k.funnel[s]||0}</div><div class="fl">${STAGE_LABEL[s]}</div></div>`).join('');
+    $('dashTasks').innerHTML=tasks.length?tasks.slice(0,5).map(t=>taskRow(t)).join('')
+      :`<div class="empty" style="padding:24px"><div class="et">Nothing due.</div><p>Callbacks and follow-ups will appear here.</p></div>`;
+    $('dashCalls').innerHTML=calls.length?calls.slice(0,5).map(c=>callRow(c)).join('')
+      :`<div class="empty" style="padding:24px"><div class="et">No calls yet.</div></div>`;
+    if(b)$('mBal').textContent=inr(b.balance_inr);
+    hydrateIcons(pg);
+  }catch(e){pg.innerHTML+=`<div class="empty"><div class="et">Could not load.</div><p>${esc(e.message)}</p></div>`}
 }
-async function manualSync(){
-  $('syncSpin').style.display='';$('syncTxt').textContent='Syncing…';
+function taskRow(t){
+  const od=!t.done&&t.due_at&&t.due_at.slice(0,10)<new Date().toISOString().slice(0,10);
+  return `<div class="taskrow ${t.done?'done':''}">
+    <button class="cbox" onclick="toggleTask('${t.id}',${t.done?0:1},event)" aria-label="mark done">${t.done?ic('check',12):''}</button>
+    <div style="flex:1;min-width:0"><div class="tt" style="font-size:13px;font-weight:600">${esc(t.title)}</div>
+    <div class="small">${t.lead_name?`<a href="#" onclick="openLead(${t.lead_id});return false">${esc(t.lead_name)}</a> · `:''}<span class="${od?'overdue':''}">${t.due_at?fdate(t.due_at):'no date'}</span></div></div>
+    ${t.lead_id&&!t.done?`<button class="iconbtn" onclick="quickDial(${t.lead_id})" aria-label="call">${ic('phone',15)}</button>`:''}
+  </div>`;
+}
+function callRow(c){
+  const disp=c.disposition||'';
+  return `<div class="taskrow" onclick="openCall('${c.id}')" style="cursor:pointer">
+    <div style="flex:1;min-width:0">
+      <div class="tt" style="font-size:13px;font-weight:600">${esc(c.lead_name||c.to_number||'Unknown')}</div>
+      <div class="small"><span class="mono">${esc(c.to_number||'')}</span> · ${mmss(c.duration_seconds)} · ${fdate(c.started_at)}</div>
+    </div>
+    ${disp?`<span class="pill ${disp.startsWith('qualified')?'p-green':disp.startsWith('not_interested')||disp==='dnc'?'p-red':'p-grey'}">${esc((DISP_LABEL[disp]||disp).split('–')[0].trim())}</span>`:''}
+  </div>`;
+}
+async function refreshAll(){
+  toast('Syncing with Speko…');
   try{await fetch('/api/sync',{method:'POST'})}catch(e){}
-  pollSync();
+  setTimeout(()=>go(VIEW),4000);
+}
+/* ================= pipeline (kanban) ================= */
+const STAGE_BAND={new:['#E6EDFF','#2E5BFF'],contacting:['#E0F2FE','#0284C7'],
+  qualified:['#DDF5E5','#0E9F4E'],survey_scheduled:['#EEE6FD','#7C3AED'],survey_done:['#EEE6FD','#7C3AED'],
+  proposal_sent:['#FBEEDC','#B96A06'],negotiation:['#FBEEDC','#B96A06'],
+  won:['#DDF5E5','#0E9F4E'],nurture:['#E9EDF3','#5C6575'],lost:['#FBE9E7','#D92D20']};
+async function renderPipe(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Pipeline',
+    `<span id="pipeMeta">Loading…</span>`,
+    `<button class="btn sm" onclick="go('leads')">${ic('users',14)} All leads</button>
+     <button class="btn sm dark" onclick="openDialer()">${ic('phone',14)} Call now</button>`)+
+  `<div class="kwrap" id="kwrap">${'<div class="kcol"><div class="sk" style="height:120px"></div></div>'.repeat(4)}</div>`;
+  hydrateIcons(pg);
+  try{
+    const cols=await api(cq('/api/pipeline'));
+    const total=cols.reduce((a,c)=>a+c.count,0);
+    $('pipeMeta').innerHTML=`<span>${total} open leads</span><span class="dot"></span><span>open a card to move stages</span>`;
+    $('kwrap').innerHTML=cols.map(c=>{
+      const band=STAGE_BAND[c.id]||['#E9EDF3','#5C6575'];
+      return `
+      <div class="kcol">
+        <div class="kchead" style="background:${band[0]};color:${band[1]}">
+          <div class="nm">${c.label}</div><div class="big">${c.count}</div>
+          <div class="ct">${c.count===1?'lead':'leads'} in stage</div>
+        </div>
+        <div class="kcards">${c.leads.map(l=>`
+          <div class="kcard ${kcardClass(l.last_activity_at)}" onclick="openLead(${l.id})">
+            <div class="kn">${esc(l.name||'(no name)')}</div>
+            <div class="kp">${esc(l.phone||'')}</div>
+            <div class="krow">${scoreBadge(l.score)}<span class="agebadge">${ageOf(l.last_activity_at)}${l.follow_up_at?' · cb '+fday(l.follow_up_at):''}</span></div>
+          </div>`).join('')||'<div class="small" style="padding:8px 4px">Empty</div>'}
+        </div>
+      </div>`}).join('');
+  }catch(e){$('kwrap').innerHTML=`<div class="empty"><div class="et">Could not load.</div><p>${esc(e.message)}</p></div>`}
 }
 
-function renderAll(s){
-  // balance hero
-  const bal=BILL?BILL.balance_inr:0;
-  $('hBal').textContent=inr(bal);
-  const bp=$('balPill'); bp.textContent=inr(bal);
-  bp.classList.toggle('low',bal<1000);
-  const spent=BILL?(BILL.total_cost_inr||0):0;
-  const perCall=s.calls?spent/s.calls:0;
-  const worthLeft=perCall>0?Math.floor(bal/perCall):'—';
-  $('hBalSub').textContent=`≈ $${(BILL?BILL.balance_usd:0).toFixed(2)} · ${spent?inr(spent)+' spent so far':'no spend yet'}`+
-    (worthLeft==='—'?'':` · roughly ${worthLeft} calls left`);
-  $('hBalWarn').style.display=(bal>0&&bal<1000)?'':'none';
-  // stats
-  $('statsGrid').innerHTML=`
-    <div class="stat"><div class="v">${s.leads}</div><div class="l">Leads</div></div>
-    <div class="stat"><div class="v">${s.calls}</div><div class="l">Calls placed</div></div>
-    <div class="stat"><div class="v">${s.connected}</div><div class="l">Connected</div></div>
-    <div class="stat q"><div class="v">${s.qualified}</div><div class="l">Qualified ✅</div></div>
-    <div class="stat"><div class="v">${fmtDur(s.avg_duration_s)}</div><div class="l">Avg call</div></div>
-    <div class="stat s"><div class="v">${inr(s.spend_inr)}</div><div class="l">Call spend</div></div>`;
-  renderChart(); renderSplit(); renderAgent(); renderRecent(); renderCalls(); renderLeads();
+/* ================= leads ================= */
+let LEADF={q:'',stage:'all'};
+async function renderLeads(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Leads',
+    `<span id="leadMeta">Loading…</span>`,
+    `<button class="btn sm dark" onclick="openLeadModal()">${ic('plus',14)} Add lead</button>`)+
+  `<div class="fbar">
+     <div class="searchbox">${ic('search',15)}<input id="lq" placeholder="Search name or number…" value="${esc(LEADF.q)}"></div>
+     <div class="segtabs" id="lstages"></div>
+   </div>
+   <div class="tblwrap"><table class="tbl"><thead><tr>
+     <th>Name</th><th>Phone</th><th>Stage</th><th class="r">Score</th><th class="r">Last activity</th><th></th>
+   </tr></thead><tbody id="leadRows"></tbody></table></div>
+   <div id="leadEmpty"></div>`;
+  hydrateIcons(pg);
+  $('lq').oninput=e=>{LEADF.q=e.target.value;drawLeadRows()};
+  try{
+    const leads=await api(cq('/api/leads'));
+    window._leads=leads;
+    const counts={};leads.forEach(l=>counts[l.stage]=(counts[l.stage]||0)+1);
+    const tabs=['all',...Object.keys(STAGE_LABEL)].filter(s=>s==='all'||counts[s]);
+    $('lstages').innerHTML=tabs.map(s=>`<button class="${LEADF.stage===s?'on':''}" data-s="${s}">${s==='all'?'All':STAGE_LABEL[s]}<span class="n">${s==='all'?leads.length:counts[s]}</span></button>`).join('');
+    $('lstages').querySelectorAll('button').forEach(b=>b.onclick=()=>{LEADF.stage=b.dataset.s;renderLeads()});
+    $('leadMeta').innerHTML=`<span>${leads.length} leads</span>`;
+    drawLeadRows();
+  }catch(e){$('leadRows').innerHTML=`<tr><td colspan="6" class="empty"><div class="et">Could not load.</div></td></tr>`}
+}
+function drawLeadRows(){
+  const q=LEADF.q.toLowerCase();
+  const rows=(window._leads||[]).filter(l=>
+    (LEADF.stage==='all'||l.stage===LEADF.stage)&&
+    (!q||(l.name||'').toLowerCase().includes(q)||(l.phone||'').includes(q)));
+  $('leadRows').innerHTML=rows.map(l=>`<tr onclick="openLead(${l.id})">
+    <td style="font-weight:600">${esc(l.name||'(no name)')}${l.dnc?' <span class="pill p-red">DNC</span>':''}</td>
+    <td class="mono">${esc(l.phone||'—')}</td>
+    <td>${stagePill(l.stage)}</td><td class="r">${scoreBadge(l.score)}</td>
+    <td class="r small">${ageOf(l.last_activity_at)}</td>
+    <td class="r"><button class="iconbtn" onclick="event.stopPropagation();openLead(${l.id})">${ic('chev-r',15)}</button></td>
+  </tr>`).join('');
+  $('leadEmpty').innerHTML=rows.length?'':`<div class="empty"><div class="et">No leads match.</div><p>Try a different search or add a new lead.</p></div>`;
+  hydrateIcons($('page'));
 }
 
-function renderChart(){
-  const max=Math.max(1,...DAILY.map(d=>d.cost_inr));
-  $('spendChart').innerHTML=DAILY.map(d=>{
-    const h=Math.max(3,Math.round(d.cost_inr/max*104));
-    const day=new Date(d.day+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'});
-    return `<div class="col" title="${day}: ${inr(d.cost_inr)} · ${d.calls} calls">
-      <div class="cv">${d.cost_inr?inr(d.cost_inr):''}</div>
-      <div class="cb" style="height:${h}px"></div><div class="cd">${day.split(' ')[0]}</div></div>`;
-  }).join('');
+/* ================= lead drawer ================= */
+let LD=null, DTAB='timeline';
+async function openLead(id){
+  const d=await api(`/api/leads/${id}`);
+  LD=d;DTAB='timeline';drawLeadDrawer();
+  $('scrim').classList.add('show');$('drawer').classList.add('show');
 }
-function renderSplit(){
-  const bd=(BILL&&BILL.breakdown)||[];
-  if(!bd.length){$('provSplit').innerHTML='<div class="mut">No usage data yet.</div>';return}
-  const max=Math.max(1,...bd.map(b=>b.cost_usd));
-  const cls=['','g','b','v'];
-  $('provSplit').innerHTML=bd.slice(0,6).map((b,i)=>
-    `<div class="bar-row"><div class="bl">${esc(b.label||b.provider)}</div>
-     <div class="bar-track"><div class="bar-fill ${cls[i%4]}" style="width:${Math.max(4,Math.round(b.cost_usd/max*100))}%"></div></div>
-     <div class="bv">${inr(b.cost_inr)}</div></div>`).join('');
+function closeDrawer(){$('scrim').classList.remove('show');$('drawer').classList.remove('show')}
+function drawLeadDrawer(){
+  const d=LD;
+  const facts=[['Property',d.property_type],['Roof ownership',d.roof_ownership],['Roof type',d.roof_type],
+    ['Roof area (sqft)',d.roof_area_sqft],['Monthly bill',d.monthly_bill_inr?inr(d.monthly_bill_inr):''],
+    ['Timeline',d.timeline],['Decision maker',d.decision_maker],['Financing',d.financing_interest],
+    ['Subsidy aware',d.subsidy_awareness],['DISCOM',d.discom],['Source',d.source],['Campaign',d.campaign]];
+  $('dhead').innerHTML=`<div class="trow"><div style="flex:1;min-width:0">
+    <h2>${esc(d.name||'(no name)')}</h2>
+    <div class="sub"><span class="mono">${esc(d.phone||'')}</span>${d.dnc?' · <span class="pill p-red">Do not call</span>':''}</div>
+    <div class="mt8 rowflex">${stagePill(d.stage)}${scoreBadge(d.score)}<span class="small">score</span></div>
+    </div><button class="iconbtn" onclick="closeDrawer()">${ic('x',16)}</button></div>
+    <div class="dactions">
+      <button class="btn primary sm" onclick="quickDial(${d.id})" ${d.dnc?'disabled':''}>${ic('phone',14)} Call now</button>
+      <a class="btn sm" target="_blank" href="https://wa.me/${waNum(d.phone)}">${ic('msg',14)} WhatsApp</a>
+      <button class="btn sm" onclick="notePrompt()">${ic('plus',14)} Note</button>
+    </div>
+    <div class="dtabs">${['timeline','calls','notes','tasks'].map(t=>`<button class="${DTAB===t?'on':''}" onclick="setDTab('${t}')">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`;
+  const body=$('dbody');
+  if(DTAB==='timeline'){
+    body.innerHTML=`<h3 style="font-size:13px;font-weight:700;margin-bottom:12px">About</h3>
+    <div class="pgrid mb16">${facts.map(f=>`<div class="pitem"><div class="k">${f[0]}</div><div class="v ${f[1]?'':'empty'}">${f[1]?esc(f[1]):'—'}</div></div>`).join('')}</div>
+    <hr class="hr"><h3 style="font-size:13px;font-weight:700;margin-bottom:12px">Timeline</h3>
+    <div class="tl">${d.timeline.map(t=>`<div class="tlitem k-${t.kind}">
+      <span class="tdot"></span><div class="tt">${esc(t.title)}</div>
+      ${t.detail?`<div class="td">${esc(t.detail)}</div>`:''}<div class="ts">${fdate(t.created_at)}</div></div>`).join('')||'<div class="small">No activity yet.</div>'}</div>
+    <hr class="hr"><h3 style="font-size:13px;font-weight:700;margin-bottom:8px">Pipeline stage</h3>
+    <div class="rowflex"><select class="ctl" id="dstage" style="flex:1">${Object.keys(STAGE_LABEL).map(s=>`<option value="${s}" ${d.stage===s?'selected':''}>${STAGE_LABEL[s]}</option>`).join('')}</select>
+    <button class="btn sm primary" onclick="moveStage()">Move</button></div>`;
+  }else if(DTAB==='calls'){
+    body.innerHTML=d.calls.length?d.calls.map(c=>`
+      <div class="taskrow" onclick="openCall('${c.id}')" style="cursor:pointer">
+        <div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc((DISP_LABEL[c.disposition]||c.outcome||'Call').replace(/_/g,' '))}</div>
+        <div class="small">${mmss(c.duration_seconds)} · ${c.cost_usd?inr(c.cost_usd*83):'—'} · ${fdate(c.started_at)}</div>
+        ${c.summary?`<div class="small mt8">${esc(c.summary)}</div>`:''}</div>
+        ${ic('chev-r',15)}</div>`).join('')
+      :`<div class="empty"><div class="et">No calls yet.</div><p>Tap “Call now” to dial this lead.</p></div>`;
+  }else if(DTAB==='notes'){
+    body.innerHTML=`<div class="frow"><textarea class="ctl" id="nnote" rows="3" style="width:100%" placeholder="Add a note…"></textarea></div>
+      <button class="btn sm primary mb16" onclick="addNote()">Save note</button>
+      ${d.notes.map(n=>`<div class="ana"><div class="av">${esc(n.body)}</div><div class="small mt8">${fdate(n.created_at)}</div></div>`).join('')||'<div class="small">No notes yet.</div>'}`;
+  }else{
+    body.innerHTML=`<div class="rowflex mb12"><input class="ctl" id="ttitle" placeholder="New task…" style="flex:1"><input class="ctl" id="tdue" type="datetime-local" style="width:170px"><button class="btn sm primary" onclick="addTask()">Add</button></div>
+      ${d.tasks.map(t=>taskRow(t)).join('')||'<div class="small">No tasks. Add a callback above.</div>'}`;
+  }
+  hydrateIcons($('drawer'));
 }
-function renderAgent(){
-  const num=(NUMBERS&&NUMBERS[0]&&NUMBERS[0].e164)||'—';
-  $('agentCard').innerHTML=`
-    <div class="agentrow"><div class="avatar">🎙️</div>
-      <div><div class="nm">${esc((AGENT&&AGENT.name)||'Priya')}</div>
-      <div class="mt">${esc((AGENT&&AGENT.language)||'Telugu')} outbound · ${esc(num)}</div></div></div>
-    <div style="margin-top:10px">
-      <div class="kv"><span class="k">Caller ID</span><span class="v">${esc(num)}</span></div>
-      <div class="kv"><span class="k">AI brain</span><span class="v">${esc((AGENT&&AGENT.llm)||'—')}</span></div>
-      <div class="kv"><span class="k">Voice</span><span class="v">${esc((AGENT&&AGENT.tts)||'—')}</span></div>
-    </div>`;
+function setDTab(t){DTAB=t;drawLeadDrawer()}
+async function moveStage(){
+  const s=$('dstage').value;
+  await api(`/api/leads/${LD.id}/stage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage:s})});
+  toast('Moved to '+STAGE_LABEL[s]);openLead(LD.id);go(VIEW);
 }
-function renderRecent(){
-  const rc=CALLS.slice(0,5);
-  $('recentCalls').innerHTML=rc.length?rc.map(c=>
-    `<div class="ccard" style="margin-bottom:8px" onclick="openCall('${c.id}')">
-      <div class="r1"><div class="nm">${esc(c.lead_name||c.to_number||'Call')}</div>${pill(c.outcome)}</div>
-      <div class="r2"><span class="meta">${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)}</span>
-      <span class="cost">${inr((+c.cost_usd||0)*88)}</span></div></div>`).join('')
-    :'<div class="mut">No calls yet — they appear here after Priya dials.</div>';
+async function notePrompt(){DTAB='notes';drawLeadDrawer();setTimeout(()=>$('nnote').focus(),100)}
+async function addNote(){
+  const b=$('nnote').value.trim();if(!b)return;
+  await api(`/api/leads/${LD.id}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:b})});
+  toast('Note saved');openLead(LD.id);
 }
-
-/* ---------------- tabs ---------------- */
-function showTab(t){
-  tab=t;
-  document.querySelectorAll('.bnav').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  document.querySelectorAll('.dnav').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  ['home','calls','leads','add'].forEach(x=>$('v-'+x).hidden=x!==t);
-  window.scrollTo({top:0});
+async function addTask(){
+  const t=$('ttitle').value.trim();if(!t)return;
+  await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:LD.id,title:t,due_at:$('tdue').value||null})});
+  toast('Task added');openLead(LD.id);
 }
-document.querySelectorAll('.bnav,.dnav').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.t)));
-$('fab').addEventListener('click',()=>showTab('add'));
-$('refreshBtn').addEventListener('click',manualSync);
-$('sheetClose').addEventListener('click',closeSheet);
-$('sheetWrap').addEventListener('click',e=>{if(e.target===$('sheetWrap'))closeSheet()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
-
-/* ---------------- calls ---------------- */
-const OUTCOMES=['qualified','callback','not_interested','no_answer'];
-function renderChips(){
-  $('callChips').innerHTML=`<button class="chip${callFilter?'':' on'}" data-f="">All</button>`+
-    OUTCOMES.map(o=>`<button class="chip${callFilter===o?' on':''}" data-f="${o}">${LABEL[o]}</button>`).join('');
-  $('callChips').querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{callFilter=c.dataset.f;renderChips();renderCalls()}));
-  $('leadChips').innerHTML=`<button class="chip${leadFilter?'':' on'}" data-f="">All</button>`+
-    ['new','qualified','callback','not_interested','called'].map(o=>
-      `<button class="chip${leadFilter===o?' on':''}" data-f="${o}">${LABEL[o]||o}</button>`).join('');
-  $('leadChips').querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{leadFilter=c.dataset.f;renderChips();renderLeads()}));
+async function toggleTask(id,done,ev){
+  ev.stopPropagation();
+  await fetch(`/api/tasks/${id}/done`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:!!done})});
+  if(LD&&LD.id){openLead(LD.id)}else{go(VIEW)}
 }
-function filteredCalls(){
-  return CALLS.filter(c=>((c.lead_name||'')+' '+(c.to_number||'')).toLowerCase().includes(q)
-    &&(!callFilter||(c.outcome||'')===callFilter));
+async function openLeadModal(){$('leadModalCo').textContent=CO.name;openModal('leadModal')}
+async function doAddLead(){
+  const ph=$('nlPhone').value.trim();if(ph.replace(/\D/g,'').length<10){toast('Enter a valid phone');return}
+  const r=await api(cq('/api/leads'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('nlName').value.trim(),phone:ph,source:$('nlSource').value,monthly_bill_inr:+$('nlBill').value||null})});
+  closeModal('leadModal');$('nlName').value='';$('nlPhone').value='';$('nlBill').value='';
+  toast('Lead added');if(VIEW==='leads'||VIEW==='pipe')go(VIEW);openLead(r.id);
 }
-function renderCalls(){
-  const list=filteredCalls();
-  $('callsEmpty').style.display=list.length?'none':'';
-  $('callsCards').innerHTML=list.map(c=>
-    `<div class="ccard" onclick="openCall('${c.id}')">
-      <div class="r1"><div class="nm">${esc(c.lead_name||'Unknown')}</div>${pill(c.outcome)}</div>
-      <div class="ph">${esc(c.to_number||'')}</div>
-      <div class="r2"><span class="meta">${fmtTime(c.started_at)}</span>
-        <span class="meta">·</span><span class="meta">${fmtDur(c.duration_seconds)}</span>
-        ${c.has_recording?'<span class="meta">🎧 recording</span>':''}
-        <span class="cost">${inr((+c.cost_usd||0)*88)}</span></div></div>`).join('');
-  $('callsBody').innerHTML=list.map(c=>
-    `<tr onclick="openCall('${c.id}')"><td class="mut">${fmtTime(c.started_at)}</td>
-     <td><b>${esc(c.lead_name||'—')}</b><div class="mut">${esc(c.to_number||'')}</div></td>
-     <td>${fmtDur(c.duration_seconds)}</td><td>${pill(c.outcome)}</td>
-     <td class="mut">${inr((+c.cost_usd||0)*88)}</td>
-     <td><button class="btn ghost sm">View</button></td></tr>`).join('');
-}
-$('q').addEventListener('input',e=>{q=e.target.value.toLowerCase();renderCalls()});
-$('q2').addEventListener('input',e=>{q2=e.target.value.toLowerCase();renderLeads()});
-
-/* ---------------- leads ---------------- */
-function filteredLeads(){
-  return LEADS.filter(l=>(l.name+' '+l.phone).toLowerCase().includes(q2)
-    &&(!leadFilter||l.status===leadFilter||l.last_outcome===leadFilter));
-}
-function waLink(l){
-  const ph=String(l.phone||'').replace(/\D/g,'');
-  if(ph.length<10)return '';
-  const msg=encodeURIComponent(`Namaste ${(l.name||'').split(' ')[0]||''} garu, AB Solar Power Systems nundi. Mee solar enquiry gurinchi matladalani call chesamu.`);
-  return `https://wa.me/91${ph.slice(-10)}?text=${msg}`;
-}
-function renderLeads(){
-  const list=filteredLeads();
-  $('leadsEmpty').style.display=list.length?'none':'';
-  $('leadsCards').innerHTML=list.map(l=>{
-    const wa=waLink(l), tel=l.phone?`tel:${esc(l.phone)}`:'';
-    return `<div class="ccard">
-      <div class="r1"><div class="nm">${esc(l.name)||'—'}</div>${pill(l.last_outcome||l.status)}</div>
-      <div class="ph">${esc(l.phone)||'<span class="mut">phone pending</span>'} · ${esc(l.source||'')}</div>
-      ${l.campaign?`<div class="ph">${esc(l.campaign)}</div>`:''}
-      <div class="r2"><span class="meta">${l.last_call_at?('Last call '+fmtTime(l.last_call_at)):('Added '+fmtTime(l.created_at))}</span></div>
-      <div class="actions">
-        ${tel?`<a class="btn sm ghost" style="text-decoration:none;text-align:center" href="${tel}">📞 Call</a>`:''}
-        ${wa?`<a class="btn sm ghost" style="text-decoration:none;text-align:center" href="${wa}" target="_blank" rel="noopener">💬 WhatsApp</a>`:''}
-      </div></div>`}).join('');
-  $('leadsBody').innerHTML=list.map(l=>{
-    const wa=waLink(l), tel=l.phone?`tel:${esc(l.phone)}`:'';
-    return `<tr><td><b>${esc(l.name)||'—'}</b><div class="mut">${esc(l.campaign||'')}</div></td>
-     <td>${esc(l.phone)||'<span class="mut">pending</span>'}</td>
-     <td class="mut">${esc(l.source||'')}</td><td class="mut">${fmtTime(l.created_at)}</td>
-     <td>${pill(l.last_outcome||l.status)}</td>
-     <td style="white-space:nowrap">${tel?`<a class="btn ghost sm" style="text-decoration:none" href="${tel}">📞</a>`:''}
-       ${wa?` <a class="btn ghost sm" style="text-decoration:none" href="${wa}" target="_blank" rel="noopener">💬</a>`:''}</td></tr>`}).join('');
+/* ================= calls ================= */
+async function renderCalls(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Calls',`<span id="callMeta">Loading…</span>`,
+    `<button class="btn sm primary" onclick="openDialer()">${ic('phone',14)} Call now</button>`)+
+  `<div class="tblwrap"><table class="tbl"><thead><tr>
+    <th>Lead</th><th>Outcome</th><th>Intent</th><th class="r">Duration</th><th class="r">Cost</th><th class="r">When</th><th></th>
+  </tr></thead><tbody id="callRows"></tbody></table></div>`;
+  hydrateIcons(pg);
+  try{
+    const calls=await api(cq('/api/calls'));
+    $('callMeta').innerHTML=`<span>${calls.length} calls</span><span class="dot"></span><span>tap a row for the full analysis</span>`;
+    $('callRows').innerHTML=calls.map(c=>`<tr onclick="openCall('${c.id}')">
+      <td style="font-weight:600">${esc(c.lead_name||c.to_number||'—')}</td>
+      <td>${c.disposition?`<span class="pill ${c.disposition.startsWith('qualified')?'p-green':c.disposition.startsWith('not_interested')||c.disposition==='dnc'?'p-red':'p-grey'}">${esc(DISP_LABEL[c.disposition]||c.disposition)}</span>`:`<span class="small">${esc((c.outcome||'—').replace(/_/g,' '))}</span>`}</td>
+      <td>${c.intent_verdict?`<span class="pill ${INTENT_PILL[c.intent_verdict]||'p-grey'}">${INTENT_LABEL[c.intent_verdict]||c.intent_verdict}</span>`:'<span class="small">—</span>'}</td>
+      <td class="r mono">${mmss(c.duration_seconds)}</td>
+      <td class="r mono">${c.cost_usd?inr(c.cost_usd*83):'—'}</td>
+      <td class="r small">${ageOf(c.started_at)}</td>
+      <td class="r"><button class="iconbtn" onclick="event.stopPropagation();openCall('${c.id}')">${ic('chev-r',15)}</button></td>
+    </tr>`).join('')||`<tr><td colspan="7" class="empty"><div class="et">No calls yet.</div></td></tr>`;
+    hydrateIcons(pg);
+  }catch(e){$('callRows').innerHTML=`<tr><td colspan="7" class="empty"><div class="et">Could not load.</div></td></tr>`}
 }
 
-/* ---------------- call detail sheet ---------------- */
+/* ================= call detail drawer — the analysis view ================= */
+let CD=null;
 async function openCall(id){
-  $('sheetWrap').classList.add('open');document.body.style.overflow='hidden';
-  $('m-title').textContent='Loading…';$('m-sub').textContent='';
-  $('m-pill').innerHTML='';$('m-turns').innerHTML='<div class="sk" style="height:120px"></div>';
-  $('m-audio').innerHTML='';$('m-cost').innerHTML='';$('m-summary').style.display='none';
-  try{
-    const c=await api('/api/calls/'+encodeURIComponent(id));
-    $('m-title').textContent=c.lead_name||c.to_number||'Call';
-    $('m-sub').textContent=`${c.to_number||''} · ${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)}`;
-    $('m-pill').innerHTML=pill(c.outcome);
-    const usage=(c.usage||[]).filter(u=>u.cost>0);
-    $('m-cost').innerHTML=`<div class="kv" style="border:none;padding:6px 0">
-      <span class="k">This call cost</span><span class="v">${inr((+c.cost_usd||0)*88)}</span></div>`+
-      (usage.length?`<div class="mut" style="margin-bottom:8px">`+usage.map(u=>
-        `${esc(MLABEL[u.metric]||u.metric)} ${inr(u.cost*88)}`).join(' · ')+`</div>`:'');
-    $('m-audio').innerHTML=c.has_recording
-      ?`<audio controls preload="none" src="/api/calls/${encodeURIComponent(id)}/recording"></audio>`
-      :`<div class="mut">No recording for this call.</div>`;
-    const box=$('m-turns');box.innerHTML='';
-    (c.transcript||[]).forEach(t=>{const d=document.createElement('div');
-      d.className='turn '+t.speaker;
-      d.innerHTML=`<div class="who">${t.speaker==='agent'?'Priya 🎙️':'Lead'}</div>${esc(t.text)}`;
-      box.appendChild(d)});
-    if(!(c.transcript||[]).length)box.innerHTML='<div class="mut">Transcript not available.</div>';
-  }catch(e){$('m-title').textContent='Could not load call';$('m-turns').innerHTML=''}
+  $('dhead').innerHTML='<div class="sk" style="height:90px"></div>';
+  $('dbody').innerHTML='';
+  $('scrim').classList.add('show');$('drawer').classList.add('show');
+  const c=await api(`/api/calls/${id}`);CD=c;
+  const intent=c.intent_verdict||'unknown';
+  const objs=c.objections_json||[];
+  const facts=c.structured_json||{};
+  const factRows=Object.entries(facts).filter(([,v])=>v).map(([k,v])=>`<div class="fact"><div class="fk">${esc(k.replace(/_/g,' '))}</div><div class="fv">${esc(v)}</div></div>`).join('');
+  const tr=c.transcript||[];
+  $('dhead').innerHTML=`<div class="trow"><div style="flex:1;min-width:0">
+    <h2>${esc(c.lead_name||c.to_number||'Call')}</h2>
+    <div class="sub"><span class="mono">${esc(c.to_number||'')}</span> · ${mmss(c.duration_seconds)} · ${fdate(c.started_at)}</div>
+    <div class="mt8 rowflex">${c.disposition?`<span class="pill ${c.disposition.startsWith('qualified')?'p-green':'p-grey'}">${esc(DISP_LABEL[c.disposition]||c.disposition)}</span>`:`<span class="pill p-grey">${esc((c.outcome||'no outcome').replace(/_/g,' '))}</span>`}
+    <span class="pill ${INTENT_PILL[intent]||'p-grey'}">${INTENT_LABEL[intent]||intent}</span></div>
+    </div><button class="iconbtn" onclick="closeDrawer()">${ic('x',16)}</button></div>
+    <div class="dactions">
+      ${c.lead_id?`<button class="btn sm primary" onclick="closeDrawer();openLead(${c.lead_id})">${ic('user',14)} Lead record</button>`:''}
+      ${c.demo?`<audio controls src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`:`<a class="btn sm" href="/api/calls/${c.id}/recording" target="_blank">${ic('play',14)} Recording</a>`}
+    </div>`;
+  $('dbody').innerHTML=`
+    ${c.summary?`<div class="ana"><div class="ak">Speko call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
+    ${intent!=='unknown'?`<div class="ana"><div class="ak">Intent <span class="src-tag">· detected by dashboard</span></div>
+      <div class="av"><span class="pill ${INTENT_PILL[intent]}" style="font-size:13px">${INTENT_LABEL[intent]}</span>
+      ${c.talk_ratio!=null?`<div class="small mt8">AI talked ${Math.round(c.talk_ratio*100)}% of the call</div><div class="talkbar"><i style="width:${Math.round(c.talk_ratio*100)}%"></i></div>`:''}</div></div>`:''}
+    ${factRows?`<div class="ana"><div class="ak">Extracted facts <span class="src-tag">· from speko report</span></div><div class="factgrid">${factRows}</div></div>`:''}
+    ${objs.length?`<div class="ana"><div class="ak">Objections raised <span class="src-tag">· detected by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap">${objs.map(o=>`<span class="pill p-amber">${esc(o)}</span>`).join('')}</div></div>`:''}
+    ${c.next_action?`<div class="ana"><div class="ak">Suggested next action <span class="src-tag">· detected by dashboard</span></div>
+      <div class="av" style="font-weight:600">${esc(c.next_action)}</div>
+      <div class="mt8 rowflex" style="flex-wrap:wrap">
+        ${c.lead_id?`<button class="btn sm" onclick="applyNextAction()">${ic('check',14)} Apply: create task</button>`:''}
+        ${c.lead_id?`<button class="btn sm" onclick="closeDrawer();openLead(${c.lead_id})">${ic('user',14)} Open lead</button>`:''}
+      </div></div>`:''}
+    <h3 style="font-size:13px;font-weight:700;margin:20px 0 8px">Disposition</h3>
+    <div class="small mb12">Confirm or correct what happened on this call. Moving the stage updates the pipeline.</div>
+    <div class="rowflex"><select class="ctl" id="cdisp" style="flex:1">${Object.entries(DISP_LABEL).map(([k,v])=>`<option value="${k}" ${c.disposition===k?'selected':''}>${v}</option>`).join('')}</select>
+    <button class="btn sm primary" onclick="saveDisposition()">Save</button></div>
+    <hr class="hr">
+    <h3 style="font-size:13px;font-weight:700;margin-bottom:12px">Transcript</h3>
+    ${tr.length?`<div class="tr">${tr.map(t=>`<div class="bub ${t.who==='agent'?'agent':'lead'}">${esc(t.text)}</div>`).join('')}</div>`:'<div class="small">No transcript captured.</div>'}
+    <hr class="hr">
+    <div class="small">Cost: <span class="mono">${c.cost_usd?inr(c.cost_usd*83):'—'}</span>${c.cost_breakdown_usd?' · see billing':''}</div>`;
+  hydrateIcons($('drawer'));
 }
-function closeSheet(){$('sheetWrap').classList.remove('open');document.body.style.overflow='';
-  const a=$('m-audio').querySelector('audio');if(a)a.pause()}
-
-/* ---------------- add lead ---------------- */
-async function addLead(){
-  const name=$('f-name').value.trim(),phone=$('f-phone').value.trim(),campaign=$('f-campaign').value.trim();
-  if(phone.replace(/\D/g,'').length<10){alert('Please enter a valid phone number.');return}
-  $('addBtn').disabled=true;$('addBtn').textContent='Saving…';
-  try{
-    const r=await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,phone,campaign,source:'manual'})});
-    if(!r.ok)throw new Error();
-    $('f-name').value=$('f-phone').value=$('f-campaign').value='';
-    const [le,s]=await Promise.all([api('/api/leads'),api('/api/stats')]);
-    LEADS=le;renderLeads();renderAll(s);showTab('leads');
-  }catch(e){alert('Could not save — check the phone number.')}
-  $('addBtn').disabled=false;$('addBtn').textContent='Save lead';
+async function saveDisposition(){
+  const d=$('cdisp').value;
+  const r=await api(`/api/calls/${CD.id}/disposition`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({disposition:d})});
+  toast('Saved — lead moved to '+STAGE_LABEL[r.stage]);
+  openCall(CD.id);if(VIEW==='pipe'||VIEW==='dash')go(VIEW);
 }
-$('addBtn').addEventListener('click',addLead);
+async function applyNextAction(){
+  if(!CD.lead_id)return;
+  await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:CD.lead_id,title:CD.next_action,kind:'followup'})});
+  toast('Follow-up task created');
+}
 
-renderChips();
-load();
+/* ================= tasks ================= */
+async function renderTasks(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Follow-ups',`<span id="taskMeta">Loading…</span>`,
+    `<div class="segtabs" id="tfilt"><button data-f="today" class="on">Today</button><button data-f="open">Open</button><button data-f="done">Done</button></div>`)+
+  `<div class="card" id="taskList"></div>`;
+  hydrateIcons(pg);
+  let F='today';
+  async function load(){
+    const ts=await api(cq('/api/tasks?filter='+F));
+    $('taskMeta').innerHTML=`<span>${ts.length} ${F}</span>`;
+    $('taskList').innerHTML=ts.length?ts.map(t=>taskRow(t)).join(''):`<div class="empty"><div class="et">Nothing here.</div><p>No ${F} tasks.</p></div>`;
+    hydrateIcons(pg);
+  }
+  $('tfilt').querySelectorAll('button').forEach(b=>b.onclick=()=>{F=b.dataset.f;$('tfilt').querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');load()});
+  load();
+}
+
+/* ================= agent control ================= */
+async function renderAgent(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Agent control',`<span>Priya's live configuration on Speko · ${esc(CO.name)}</span>`,'')+
+  `<div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Live status</div></div>
+   <div class="cbody"><div class="about" id="agStatus"><div class="sk" style="height:60px"></div></div></div></div>
+  <div class="card"><div class="chead"><div class="ctitle">Configuration</div>
+   <span class="pill p-amber">Goes live on Speko the moment you save</span></div>
+   <div class="cbody" id="agForm"><div class="sk" style="height:300px"></div></div></div>`;
+  try{
+    const [info,cfg]=await Promise.all([api(cq('/api/agent')).catch(()=>null),api(cq('/api/agent/config'))]);
+    const st=$('agStatus');
+    if(info){
+      st.innerHTML=`
+        <div class="arow"><span class="ak">Agent</span><span class="av" style="font-weight:600">${esc(info.name||cfg.name||'—')}</span></div>
+        <div class="arow"><span class="ak">Agent ID</span><span class="av mono">${esc(cfg.agent_id||'—')}</span></div>
+        <div class="arow"><span class="ak">Language</span><span class="av">${esc(info.language||'—')}</span></div>
+        <div class="arow"><span class="ak">Voice</span><span class="av mono" style="font-size:11px;word-break:break-all">${esc(info.voice||cfg.voice||'—')}</span></div>
+        <div class="arow"><span class="ak">Caller ID</span><span class="av mono">${esc(CO.caller_id||'—')}</span></div>
+        <div class="arow"><span class="ak">AI / Speech</span><span class="av">${esc([info.llm,info.tts].filter(Boolean).join(' · ')||'—')}</span></div>`;
+    }else st.innerHTML='<div class="small">Agent status unavailable.</div>';
+    const dis=cfg.demo?'disabled':'';
+    $('agForm').innerHTML=`
+      ${cfg.demo?'<div class="pill p-amber" style="margin-bottom:12px">Demo mode — editing is disabled. Connect the Speko API key in production to control the live agent.</div>':''}
+      <div class="frow"><label class="fld">System prompt — how Priya behaves on every call</label>
+        <textarea id="agPrompt" class="ctl mono" rows="14" style="width:100%" ${dis}>${esc(cfg.systemPrompt||'')}</textarea></div>
+      <div class="frow"><label class="fld">First message — what Priya says when the call connects</label>
+        <textarea id="agFirst" class="ctl" rows="2" style="width:100%" ${dis}>${esc(cfg.firstMessage||'')}</textarea></div>
+      <div class="frow"><label class="fld">Voice instructions — delivery, warmth, pacing</label>
+        <textarea id="agVoiceInst" class="ctl" rows="3" style="width:100%" ${dis}>${esc(cfg.voiceInstructions||'')}</textarea></div>
+      <div class="frow"><label class="fld">Voice ID</label>
+        <input id="agVoice" class="ctl mono" style="width:100%" value="${esc(cfg.voice||'')}" ${dis}></div>
+      <div class="grid2" style="gap:12px">
+        <div class="frow"><label class="fld">Endpointing min (ms)</label><input id="agEpMin" class="ctl" style="width:100%" type="number" value="${cfg.endpointing_min_ms??''}" ${dis}></div>
+        <div class="frow"><label class="fld">Endpointing max (ms)</label><input id="agEpMax" class="ctl" style="width:100%" type="number" value="${cfg.endpointing_max_ms??''}" ${dis}></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn primary" onclick="saveAgentConfig()" ${dis}>${ic('check',14)} Save to live agent</button>
+        <button class="btn" onclick="renderAgent()">Reset</button>
+      </div>
+      <div class="small" style="margin-top:8px">Lower endpointing = faster replies, more interruptions. Changes apply to new calls immediately; ongoing calls are unaffected.</div>`;
+  }catch(e){$('agForm').innerHTML='<div class="small">Could not load agent config.</div>'}
+}
+async function saveAgentConfig(){
+  const body={
+    systemPrompt:$('agPrompt').value,
+    firstMessage:$('agFirst').value,
+    voiceInstructions:$('agVoiceInst').value,
+    voice:$('agVoice').value.trim(),
+  };
+  const mn=parseInt($('agEpMin').value,10),mx=parseInt($('agEpMax').value,10);
+  if(!isNaN(mn))body.endpointing_min_ms=mn;
+  if(!isNaN(mx))body.endpointing_max_ms=mx;
+  if(!confirm('Push these changes to the LIVE agent on Speko? New calls will use them immediately.'))return;
+  try{
+    const r=await api(cq('/api/agent/config'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('Live agent updated: '+(r.updated||[]).join(', '));
+  }catch(e){toast('Update failed: '+e.message)}
+}
+
+/* ================= integrations ================= */
+async function renderIntegrations(){
+  const pg=$('page');
+  pg.innerHTML=phead('Manage','Integrations',`<span>Lead sources · ${esc(CO.name)}</span>`,'')+
+  `<div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Meta Lead Ads</div><span id="metaStat"></span></div>
+   <div class="cbody" id="metaBody"><div class="sk" style="height:220px"></div></div></div>
+   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">How to connect your Facebook lead ads</div></div>
+   <div class="cbody"><ol class="steps">
+     <li><b>Get a Page access token</b> — in Meta Business Settings give a system user the <span class="mono">leads_retrieval</span> permission on your Page, or generate a token in Graph API Explorer. Paste it below — never in chat.</li>
+     <li><b>Subscribe the webhook</b> — in developers.facebook.com → your app → Webhooks, add the callback URL shown above with the verify token, then subscribe your Page to the <span class="mono">leadgen</span> field.</li>
+     <li><b>Test it</b> — use Meta's lead-ads testing tool or submit a real test lead. It should appear under Leads within seconds, and Priya calls it instantly when auto-dial is on.</li>
+   </ol></div></div>
+   <div class="card"><div class="chead"><div class="ctitle">Auto-dial activity</div></div>
+   <div class="cbody" id="metaActs"><div class="sk" style="height:80px"></div></div></div>`;
+  try{
+    const m=await api(cq('/api/integrations/meta'));
+    $('metaStat').innerHTML=m.connected?'<span class="pill p-green">Connected</span>':'<span class="pill p-grey">Not connected</span>';
+    $('metaBody').innerHTML=`
+      <div class="arow"><span class="ak">Webhook URL</span><span class="av mono" style="font-size:11px;word-break:break-all">${esc(m.webhook_url)}</span></div>
+      <div class="arow"><span class="ak">Verify token</span><span class="av">${m.verify_token_set?'<span class="pill p-green">Set on server</span>':'<span class="pill p-red">Not set — add FB_VERIFY_TOKEN on Render</span>'}</span></div>
+      <div class="arow"><span class="ak">Auto-dials today</span><span class="av"><b>${m.auto_dials_today}</b> / ${m.daily_cap} cap</span></div>
+      <div class="frow"><label class="fld">Page access token — lets the dashboard pull name &amp; phone from Meta</label>
+        <input id="metaTok" type="password" class="ctl mono" style="width:100%" placeholder="${m.connected?'Saved — paste a new token to replace it':'Paste Page access token'}" autocomplete="off"></div>
+      <div class="grid2" style="gap:12px">
+        <div class="frow"><label class="fld">Daily auto-dial cap</label>
+          <input id="metaCap" type="number" class="ctl" style="width:100%" min="1" max="500" value="${m.daily_cap}"></div>
+        <div class="frow"><label class="fld">Instant outbound</label>
+          <div style="padding-top:9px"><label class="switch"><input type="checkbox" id="metaAuto" ${m.autodial?'checked':''}><span></span>Call each new lead the moment it arrives (~₹6/call)</label></div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn primary" onclick="saveMeta()">${ic('check',14)} Save</button>
+      </div>
+      <div class="small" style="margin-top:8px">The token is stored in your dashboard's own database and used only to fetch your leads from Meta. Auto-dial always skips Do-Not-Call leads.</div>`;
+    const a=await api(cq('/api/integrations/meta/activity'));
+    $('metaActs').innerHTML=a.items.length?a.items.map(x=>`
+      <div class="arow"><span class="ak">${fdate(x.created_at)}</span>
+      <span class="av">${esc(x.title)}${x.name?` — <b>${esc(x.name)}</b>`:''} <span class="small">${esc(x.detail||'')}</span></span></div>`).join('')
+      :'<div class="small">No auto-dials yet.</div>';
+  }catch(e){$('metaBody').innerHTML='<div class="small">Could not load Meta settings.</div>'}
+}
+async function saveMeta(){
+  const body={autodial:$('metaAuto').checked,daily_cap:parseInt($('metaCap').value,10)||50};
+  const tok=$('metaTok').value.trim();
+  if(tok)body.page_token=tok;
+  if(body.autodial&&!confirm('Turn on instant outbound? Every new Meta lead will be called immediately, about ₹6 per call from the Speko balance.'))return;
+  try{
+    await api(cq('/api/integrations/meta'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('Meta integration saved');renderIntegrations();
+  }catch(e){toast('Save failed: '+e.message)}
+}
+
+/* ================= billing ================= */
+async function renderBilling(){
+  const pg=$('page');
+  pg.innerHTML=phead('Manage','Billing',`<span>Speko usage for ${esc(CO.name)}</span>`,
+    `<button class="btn sm" onclick="refreshAll()">${ic('refresh',14)} Refresh</button>`)+
+  `<div class="stats" id="bStats"><div class="stat"><div class="sk" style="height:118px"></div></div></div>
+   <div class="grid2"><div class="card"><div class="chead"><div class="ctitle">Cost by provider</div></div><div id="bProv"></div></div>
+   <div class="card"><div class="chead"><div class="ctitle">Spend — last 14 days</div></div><div id="bChart"></div></div></div>`;
+  hydrateIcons(pg);
+  try{
+    const [b,days]=await Promise.all([api('/api/billing'),api(cq('/api/usage/daily'))]);
+    $('bStats').innerHTML=[
+      ['Balance',inr(b.balance_inr),'flat',b.demo?'demo data':'live speko'],
+      ['Total spend (all time)',inr(b.total_cost_inr),'flat',b.total_sessions+' sessions'],
+      ['Talk time',b.total_minutes+' min','flat','voice usage'],
+      ['Per call avg',b.total_sessions?inr(b.total_cost_inr/b.total_sessions):'—','flat','all-in cost'],
+    ].map(s=>`<div class="stat"><div class="lbl">${s[0]}</div><div class="val">${s[1]}</div><span class="delta ${s[2]}">${s[3]}</span></div>`).join('');
+    $('bProv').innerHTML=(b.breakdown||[]).map(x=>`
+      <div class="taskrow"><div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc(x.label)}</div>
+      <div class="small"><span class="mono">${x.provider}</span> · ${esc(x.metric||'')}</div></div>
+      <div class="r"><div class="mono" style="font-weight:700">${inr(x.cost_inr)}</div><div class="small">${Number(x.quantity||0).toLocaleString('en-IN')} units</div></div></div>`).join('')
+      ||'<div class="small">No breakdown.</div>';
+    const mx=Math.max(...days.map(d=>d.cost_inr),1);
+    $('bChart').innerHTML=`<div style="display:flex;align-items:flex-end;gap:6px;height:140px">`+
+      days.map(d=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div title="${inr(d.cost_inr)}" style="width:100%;max-width:26px;border-radius:4px 4px 0 0;background:${d.cost_inr>0?'var(--accent)':'var(--border)'};height:${Math.max(4,Math.round(d.cost_inr/mx*110))}px"></div>
+        <div style="font-size:9px;color:var(--text-3)" class="mono">${d.day.slice(5)}</div></div>`).join('')+`</div>`;
+    hydrateIcons(pg);
+  }catch(e){pg.innerHTML+=`<div class="empty"><div class="et">Billing unavailable.</div><p>${esc(e.message)}</p></div>`}
+}
+
+/* ================= dialer ================= */
+function openModal(id){$(id).classList.add('show')}
+function closeModal(id){$(id).classList.remove('show')}
+async function openDialer(preLead){
+  openModal('dialModal');
+  try{const a=await api(cq('/api/agent'));$('dialFrom').textContent=a.caller_id||a.name||''}catch(e){}
+  const sel=$('dialLead');
+  try{const ls=await api(cq('/api/leads'));sel.innerHTML='<option value="">— none —</option>'+ls.map(l=>`<option value="${l.id}">${esc(l.name||l.phone)} · ${esc(l.phone||'')}</option>`).join('');
+    if(preLead)sel.value=String(preLead)}catch(e){}
+  setTimeout(()=>$('dialNum').focus(),100);
+}
+$('dialLead')&&($('dialLead').onchange=e=>{const id=e.target.value;if(!id)return;const l=(window._leads||[]).find(x=>x.id==id);if(l)$('dialNum').value=l.phone});
+async function doDial(){
+  const num=$('dialNum').value.trim();if(num.replace(/\D/g,'').length<10){toast('Enter a valid phone number');return}
+  $('dialGo').disabled=true;
+  try{
+    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null})});
+    closeModal('dialModal');toast(r.message||'Calling…');
+    setTimeout(()=>{if(VIEW==='calls'||VIEW==='dash')go(VIEW)},2500);
+  }catch(e){toast('Call failed: '+e.message)}
+  $('dialGo').disabled=false;
+}
+async function quickDial(leadId){
+  closeDrawer();
+  const l=await api(`/api/leads/${leadId}`);
+  if(l.dnc){toast('Lead is on Do-Not-Call');return}
+  $('dialNum').value=l.phone||'';
+  openDialer(leadId);
+}
+
+/* ================= companies ================= */
+async function openCompanyModal(){
+  const r=await api('/api/companies');COMPANIES=r;
+  $('coList').innerHTML=r.map(c=>`
+    <div class="taskrow" style="cursor:pointer" onclick="switchCompany('${c.id}')">
+      <div class="brandmark" style="background:${c.primary_color};width:28px;height:28px;font-size:12px">${esc(c.name.split(' ').map(w=>w[0]).join('').slice(0,2))}</div>
+      <div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc(c.name)}</div>
+      <div class="small mono">${esc(c.caller_id||'')}</div></div>
+      ${c.id===CO.id?ic('check',16):''}</div>`).join('');
+  hydrateIcons($('coModal'));openModal('coModal');
+}
+function switchCompany(id){
+  const c=COMPANIES.find(x=>x.id===id);if(!c)return;
+  closeModal('coModal');setCompany(c);go('dash');toast('Switched to '+c.name);
+}
+
+/* ================= boot ================= */
+async function boot(){
+  hydrateIcons(document);
+  const d=new Date();
+  $('tdate').innerHTML='Today, <b>'+d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})+'</b>';
+  $('gq').addEventListener('keydown',e=>{
+    if(e.key==='Enter'){LEADF.q=e.target.value;if(VIEW!=='leads')go('leads');else renderLeads()}
+  });
+  try{
+    const h=await api('/api/health');DEMO=h.demo_mode;
+    const r=await api('/api/companies');COMPANIES=r;
+    const saved=localStorage.getItem('crm_company');
+    setCompany(r.find(c=>c.id===saved)||r[0]);
+    try{const t=await api(cq('/api/tasks?filter=today'));const n=$('navTaskCnt');
+      if(t.length){n.hidden=false;n.textContent=t.length}}catch(e){}
+  }catch(e){
+    $('page').innerHTML=`<div class="empty" style="padding-top:80px"><div class="et">Could not reach the server.</div><p>${esc(e.message)}</p></div>`;
+    return;
+  }
+  go('dash');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();['dialModal','coModal','leadModal'].forEach(closeModal)}});
+boot();
 </script>
 </body>
 </html>
