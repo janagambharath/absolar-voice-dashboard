@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AB Solar — Voice Agent Dashboard</title>
+<style>
+  :root{
+    --bg:#0c0e12; --card:#14181f; --card2:#1a1f29; --line:#232a36;
+    --txt:#eef1f6; --mut:#8b94a5; --amber:#f5a623; --amber2:#ffcf6b;
+    --green:#34d17b; --red:#f4655f; --blue:#5aa9ff; --violet:#b48cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans Telugu",sans-serif;padding:20px;max-width:1200px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--amber),#e07b00);display:flex;align-items:center;justify-content:center;font-size:22px}
+  .brand h1{font-size:20px;font-weight:700}
+  .brand p{color:var(--mut);font-size:13px}
+  .demo-badge{background:#3a2a08;color:var(--amber2);border:1px solid #6b4d12;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
+  .live-badge{background:#0a2e1c;color:var(--green);border:1px solid #14532d;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:.5px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .stat .v{font-size:26px;font-weight:800}
+  .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  .stat.q .v{color:var(--green)} .stat.s .v{color:var(--amber2)}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{background:var(--card);border:1px solid var(--line);color:var(--mut);padding:9px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600}
+  .tab.on{background:var(--card2);color:var(--txt);border-color:var(--amber)}
+  .toolbar{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .toolbar input,.toolbar select{background:var(--card);border:1px solid var(--line);color:var(--txt);padding:9px 12px;border-radius:10px;font-size:14px}
+  .toolbar input{flex:1;min-width:180px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:14px}
+  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:var(--card2)}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
+  .p-qualified{background:#0a2e1c;color:var(--green)}
+  .p-callback{background:#0f2c4d;color:var(--blue)}
+  .p-not_interested{background:#3a1414;color:var(--red)}
+  .p-no_answer{background:#2c2c34;color:var(--mut)}
+  .p-new{background:#3a2a08;color:var(--amber2)}
+  .p-other{background:#2c2c34;color:var(--mut)}
+  .btn{background:var(--amber);color:#111;border:none;padding:7px 14px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  .mut{color:var(--mut);font-size:13px}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;padding:18px;z-index:50}
+  .overlay.open{display:flex}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:18px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:22px}
+  .modal h2{font-size:18px;margin-bottom:4px}
+  .summary{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14px;line-height:1.5}
+  .turns{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .turn{max-width:85%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.55}
+  .turn.agent{align-self:flex-start;background:#2a2113;border:1px solid #4a3a1a}
+  .turn.lead{align-self:flex-end;background:#1c2b45;border:1px solid #2c4470}
+  .turn .who{font-size:11px;color:var(--mut);margin-bottom:3px;font-weight:700}
+  audio{width:100%;margin-top:8px}
+  .close{float:right;background:transparent;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:6px 12px;cursor:pointer}
+  .addform{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px;display:none;gap:10px;flex-wrap:wrap}
+  .addform.open{display:flex}
+  .addform input{background:var(--bg);border:1px solid var(--line);color:var(--txt);padding:9px 12px;border-radius:10px;font-size:14px}
+  footer{color:var(--mut);font-size:12px;text-align:center;margin-top:26px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">☀️</div>
+    <div>
+      <h1>AB Solar Power Systems</h1>
+      <p>Priya voice agent — leads, calls &amp; recordings</p>
+    </div>
+  </div>
+  <div id="modeBadge"></div>
+</header>
+
+<div class="stats" id="stats"></div>
+
+<div class="tabs">
+  <button class="tab on" onclick="showTab('leads')">Leads</button>
+  <button class="tab" onclick="showTab('calls')">Calls</button>
+  <button class="tab ghost" style="margin-left:auto" onclick="document.getElementById('addform').classList.toggle('open')">+ Add lead</button>
+</div>
+
+<div class="addform" id="addform">
+  <input id="f-name" placeholder="Name">
+  <input id="f-phone" placeholder="Phone (+91…)">
+  <input id="f-campaign" placeholder="Campaign">
+  <button class="btn" onclick="addLead()">Save lead</button>
+</div>
+
+<div class="toolbar">
+  <input id="q" placeholder="Search name / phone…" oninput="render()">
+  <select id="f-outcome" onchange="render()">
+    <option value="">All outcomes</option>
+    <option value="qualified">Qualified</option>
+    <option value="callback">Callback</option>
+    <option value="not_interested">Not interested</option>
+    <option value="no_answer">No answer</option>
+    <option value="new">New</option>
+  </select>
+  <button class="btn ghost" onclick="load()">↻ Refresh</button>
+</div>
+
+<div id="leadsWrap"><table>
+  <thead><tr><th>Lead</th><th>Phone</th><th>Source</th><th>Campaign</th><th>Received</th><th>Status</th></tr></thead>
+  <tbody id="leadsBody"></tbody>
+</table></div>
+
+<div id="callsWrap" style="display:none"><table>
+  <thead><tr><th>Time</th><th>Lead</th><th>Duration</th><th>Outcome</th><th>Cost</th><th></th></tr></thead>
+  <tbody id="callsBody"></tbody>
+</table></div>
+
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="close" onclick="closeModal()">✕</button>
+    <h2 id="m-title">Call detail</h2>
+    <div class="mut" id="m-sub"></div>
+    <div class="summary" id="m-summary"></div>
+    <div id="m-audio"></div>
+    <div class="turns" id="m-turns"></div>
+  </div>
+</div>
+
+<footer>Built by REvorax for AB Solar Power Systems · Gachibowli, Hyderabad</footer>
+
+<script>
+let LEADS=[], CALLS=[], DEMO=true, tab='leads';
+const PILL={qualified:'p-qualified',callback:'p-callback',not_interested:'p-not_interested',no_answer:'p-no_answer',new:'p-new',called:'p-other',other:'p-other',needs_enrichment:'p-new'};
+const LABEL={qualified:'Qualified',callback:'Callback',not_interested:'Not interested',no_answer:'No answer',new:'New',called:'Called',other:'—',needs_enrichment:'Incoming…'};
+
+async function load(){
+  const h=await (await fetch('/api/health')).json();
+  DEMO=h.demo_mode;
+  document.getElementById('modeBadge').innerHTML = DEMO
+    ? '<span class="demo-badge">DEMO DATA</span>'
+    : '<span class="live-badge">● LIVE</span>';
+  const s=await (await fetch('/api/stats')).json();
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><div class="v">${s.leads}</div><div class="l">Leads</div></div>
+    <div class="stat"><div class="v">${s.calls}</div><div class="l">Calls placed</div></div>
+    <div class="stat"><div class="v">${s.connected}</div><div class="l">Connected</div></div>
+    <div class="stat q"><div class="v">${s.qualified}</div><div class="l">Qualified</div></div>
+    <div class="stat"><div class="v">${fmtDur(s.avg_duration_s)}</div><div class="l">Avg call</div></div>
+    <div class="stat s"><div class="v">₹${s.spend_inr}</div><div class="l">Call spend</div></div>`;
+  LEADS=await (await fetch('/api/leads')).json();
+  CALLS=await (await fetch('/api/calls')).json();
+  render();
+}
+function fmtDur(s){s=+s||0;return s>=60?Math.floor(s/60)+'m '+(s%60)+'s':s+'s'}
+function fmtTime(t){if(!t)return '—';const d=new Date(t);return d.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}
+function pill(st){st=st||'other';return `<span class="pill ${PILL[st]||'p-other'}">${LABEL[st]||st}</span>`}
+
+function showTab(t){tab=t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
+  event.target.classList.add('on');
+  document.getElementById('leadsWrap').style.display=t==='leads'?'':'none';
+  document.getElementById('callsWrap').style.display=t==='calls'?'':'none';
+}
+function render(){
+  const q=document.getElementById('q').value.toLowerCase();
+  const fo=document.getElementById('f-outcome').value;
+  const lb=document.getElementById('leadsBody'); lb.innerHTML='';
+  LEADS.filter(l=>(l.name+' '+l.phone).toLowerCase().includes(q)&&(!fo||l.status===fo||l.last_outcome===fo))
+    .forEach(l=>{const tr=document.createElement('tr');
+      tr.innerHTML=`<td><b>${esc(l.name)||'—'}</b></td><td>${esc(l.phone)||'<span class=mut>pending</span>'}</td>
+        <td class="mut">${esc(l.source)}</td><td class="mut">${esc(l.campaign)}</td>
+        <td class="mut">${fmtTime(l.created_at)}</td><td>${pill(l.last_outcome||l.status)}</td>`;
+      lb.appendChild(tr);});
+  const cb=document.getElementById('callsBody'); cb.innerHTML='';
+  CALLS.filter(c=>((c.lead_name||'')+' '+(c.to_number||'')).toLowerCase().includes(q)&&(!fo||c.outcome===fo))
+    .forEach(c=>{const tr=document.createElement('tr');
+      const cost='₹'+((+c.cost_usd||0)*88).toFixed(1);
+      tr.innerHTML=`<td class="mut">${fmtTime(c.started_at)}</td>
+        <td><b>${esc(c.lead_name)||'—'}</b><div class="mut">${esc(c.to_number)}</div></td>
+        <td>${fmtDur(c.duration_seconds)}</td><td>${pill(c.outcome)}</td><td class="mut">${cost}</td>
+        <td><button class="btn ghost" onclick="openCall('${c.id}')">View</button></td>`;
+      cb.appendChild(tr);});
+}
+function esc(s){return String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+async function openCall(id){
+  const c=await (await fetch('/api/calls/'+encodeURIComponent(id))).json();
+  document.getElementById('m-title').textContent=(c.lead_name||c.to_number||'Call');
+  document.getElementById('m-sub').textContent=`${c.to_number||''} · ${fmtTime(c.started_at)} · ${fmtDur(c.duration_seconds)} · ₹${((+c.cost_usd||0)*88).toFixed(1)}`;
+  document.getElementById('m-summary').innerHTML=`${pill(c.outcome)}<div style="margin-top:8px">${esc(c.summary)||'<span class=mut>No summary yet.</span>'}</div>`;
+  document.getElementById('m-audio').innerHTML = c.has_recording
+    ? `<audio controls preload="none" src="/api/calls/${encodeURIComponent(id)}/recording"></audio>`
+    : `<div class="mut">No recording for this call.</div>`;
+  const box=document.getElementById('m-turns'); box.innerHTML='';
+  (c.transcript||[]).forEach(t=>{const d=document.createElement('div');
+    d.className='turn '+t.speaker;
+    d.innerHTML=`<div class="who">${t.speaker==='agent'?'Priya':'Lead'}</div>${esc(t.text)}`;
+    box.appendChild(d);});
+  if(!(c.transcript||[]).length) box.innerHTML='<div class="mut">Transcript not available.</div>';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('overlay').classList.remove('open')}
+async function addLead(){
+  const body={name:document.getElementById('f-name').value,phone:document.getElementById('f-phone').value,
+    campaign:document.getElementById('f-campaign').value,source:'manual'};
+  const r=await fetch('/api/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.ok){document.getElementById('addform').classList.remove('open');load();}
+  else alert('Could not save — check the phone number.');
+}
+load();
+</script>
+</body>
+</html>
