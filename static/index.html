@@ -425,6 +425,7 @@ ol.steps b{color:var(--ink);font-weight:600}
     <button class="brandmark" id="brandMark" onclick="openCompanyModal()" title="Switch company">A</button>
     <nav class="nav" id="sideNav" style="margin-top:14px">
       <button class="navitem" data-v="dash" title="Dashboard"><i data-ic="dash"></i><span class="nlab">Dashboard</span></button>
+      <button class="navitem" data-v="companies" title="Companies"><i data-ic="users"></i><span class="nlab">Companies</span></button>
       <button class="navitem" data-v="pipe" title="Pipeline"><i data-ic="kanban"></i><span class="nlab">Pipeline</span></button>
       <button class="navitem" data-v="leads" title="Leads"><i data-ic="users"></i><span class="nlab">Leads</span></button>
       <button class="navitem" data-v="calls" title="Calls"><i data-ic="phone"></i><span class="nlab">Calls</span></button>
@@ -458,6 +459,7 @@ ol.steps b{color:var(--ink);font-weight:600}
 <nav class="bnav" id="bnav">
   <button data-v="dash"><i data-ic="dash"></i>Home</button>
   <button data-v="pipe"><i data-ic="kanban"></i>Pipeline</button>
+  <button data-v="companies"><i data-ic="users"></i>Cos</button>
   <button data-v="leads"><i data-ic="users"></i>Leads</button>
   <button data-v="calls"><i data-ic="phone"></i>Calls</button>
   <button data-v="campaigns"><i data-ic="megaphone"></i>Camps</button>
@@ -561,6 +563,51 @@ ol.steps b{color:var(--ink);font-weight:600}
 
 <div class="toast" id="toast"></div>
 
+<!-- companies admin modals -->
+<div class="modal" id="coNewModal">
+  <div class="scrim show" onclick="closeModal('coNewModal')"></div>
+  <div class="mbox">
+    <h3>New company</h3>
+    <div class="msub">Creates the company with its own client login. The password is shown once.</div>
+    <div class="frow"><label class="fld">Company name *</label>
+      <input class="ctl" id="ncName" style="width:100%" placeholder="KARTHIK AB Solar Power Systems"></div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal('coNewModal')">Cancel</button>
+      <button class="btn primary" onclick="doCreateCompany()">Create</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="coEditModal">
+  <div class="scrim show" onclick="closeModal('coEditModal')"></div>
+  <div class="mbox">
+    <h3>Edit company</h3>
+    <div class="msub mono" id="ceId"></div>
+    <input type="hidden" id="ceCid">
+    <div class="frow"><label class="fld">Company name</label>
+      <input class="ctl" id="ceName" style="width:100%"></div>
+    <div class="frow"><label class="fld">Client login ID</label>
+      <input class="ctl mono" id="ceLogin" style="width:100%"></div>
+    <div class="frow"><label class="fld"><input type="checkbox" id="ceClientView" style="margin-right:8px">Client view — hide Integrations & wallet from this login</label></div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal('coEditModal')">Cancel</button>
+      <button class="btn primary" onclick="doSaveCompany()">Save</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="coCredModal">
+  <div class="scrim show" onclick="closeModal('coCredModal')"></div>
+  <div class="mbox">
+    <h3>Client login — copy now</h3>
+    <div class="msub">This password is shown <b>once</b>. It is never stored in plain text.</div>
+    <div class="arow"><span class="ak">Login ID</span><span class="av mono" id="ccLogin" style="font-size:15px"></span></div>
+    <div class="arow"><span class="ak">Password</span><span class="av mono" id="ccPass" style="font-size:15px"></span></div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn primary" onclick="copyCreds()">Copy both</button>
+      <button class="btn" onclick="closeModal('coCredModal')">Done</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 /* ================= icons (Feather/Lucide style, stroke) ================= */
@@ -615,7 +662,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 async function api(p,opt){const r=await fetch(p,opt);if(!r.ok){let m='';try{m=(await r.json()).detail||''}catch(e){}throw new Error(m||('HTTP '+r.status))}return r.json()}
 
 /* ================= state ================= */
-let CO=null, COMPANIES=[], VIEW='dash', DEMO=false;
+let CO=null, COMPANIES=[], VIEW='dash', DEMO=false, ROLE='operator';
 let KPIS=null, BILL=null;
 const STAGE_LABEL={new:'New',contacting:'Contacting',qualified:'Qualified',survey_scheduled:'Survey scheduled',survey_done:'Survey done',proposal_sent:'Proposal sent',negotiation:'Negotiation',won:'Won',nurture:'Nurture',lost:'Lost'};
 const STAGE_PILL={new:'p-grey',contacting:'p-blue',qualified:'p-green',survey_scheduled:'p-accent',survey_done:'p-accent',proposal_sent:'p-amber',negotiation:'p-amber',won:'p-green',nurture:'p-grey',lost:'p-red'};
@@ -642,8 +689,12 @@ function setCompany(c){
 function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
 /* ================= router ================= */
-const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
+const VIEWS={dash:renderDash,companies:renderCompanies,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
 function go(v){
+  // the Companies admin is operator-only; client logins never see it
+  if(v==='companies'&&ROLE!=='operator')v='dash';
+  // with no companies yet there is nothing to show but the admin
+  if(!CO&&v!=='companies')v='companies';
   // block the Integrations view outright for client companies
   if(v==='integrations'&&CO&&CO.hide_integrations)v='dash';
   VIEW=v;
@@ -759,6 +810,103 @@ async function refreshAll(){
   try{await fetch('/api/sync',{method:'POST'})}catch(e){}
   setTimeout(()=>go(VIEW),4000);
 }
+/* ================= companies admin (operator only) ================= */
+function ajpost(p,b){return api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})})}
+function ajpatch(p,b){return api(p,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})})}
+function ajdel(p){return api(p,{method:'DELETE'})}
+let COADMIN={}; // id -> name cache for the admin list
+
+async function renderCompanies(){
+  const pg=$('page');
+  pg.innerHTML=phead('Manage','Companies','Each company gets its own client login.','<button class="btn sm primary" onclick="openModal(\'coNewModal\')">'+ic('plus',14)+' New company</button>')
+    +'<div class="cardlist" id="coAdminList"><div class="sk" style="height:140px"></div></div>';
+  hydrateIcons(pg);
+  let list;
+  try{list=await api('/api/admin/companies')}
+  catch(e){$('coAdminList').innerHTML=`<div class="empty"><div class="et">Could not load companies.</div><p>${esc(e.message)}</p></div>`;return}
+  if(!list.length){
+    $('coAdminList').innerHTML=`<div class="empty"><div class="et">No companies yet.</div>
+      <p>Create your first company, then hand its login to the client.</p>
+      <button class="btn primary" onclick="openModal('coNewModal')">${ic('plus',14)} Create company</button></div>`;
+    return;
+  }
+  $('coAdminList').innerHTML=list.map(c=>{COADMIN[c.id]=c.name;return `
+    <div class="card" style="padding:14px">
+      <div class="rowflex" style="justify-content:space-between;align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <div class="tt" style="font-size:15px">${esc(c.name)}</div>
+          <div class="small mono" style="margin-top:2px">login: <b>${esc(c.login_id||'—')}</b>${c.login_id?'':' <span class="pill p-amber">no login</span>'}</div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <span class="pill ${c.client_view?'p-blue':'p-grey'}">${c.client_view?'Client view':'Operator view'}</span>
+            <span class="pill ${c.smallest_ready?'p-green':'p-grey'}">Smallest ${c.smallest_ready?'ready':'off'}</span>
+            <span class="pill p-grey">${c.leads} leads · ${c.calls} calls</span>
+          </div>
+        </div>
+      </div>
+      <div class="rowflex" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn sm" onclick="openCompany('${c.id}')">Open</button>
+        <button class="btn sm" onclick="editCompany('${c.id}')">Edit</button>
+        <button class="btn sm" onclick="resetCompanyPass('${c.id}')">Reset password</button>
+        <button class="btn sm danger" onclick="deleteCompany('${c.id}')">Delete</button>
+      </div>
+    </div>`}).join('');
+}
+async function doCreateCompany(){
+  const name=$('ncName').value.trim();
+  if(!name){toast('Enter a company name');return}
+  try{
+    const r=await ajpost('/api/admin/companies',{name});
+    $('ncName').value='';closeModal('coNewModal');
+    $('ccLogin').textContent=r.login_id;$('ccPass').textContent=r.password;
+    openModal('coCredModal');
+    renderCompanies();
+    COMPANIES=await api('/api/companies');
+  }catch(e){toast('Create failed: '+e.message)}
+}
+async function editCompany(cid){
+  const c=await api('/api/admin/companies').then(l=>l.find(x=>x.id===cid));
+  if(!c)return;
+  $('ceCid').value=c.id;$('ceId').textContent=c.id;
+  $('ceName').value=c.name;$('ceLogin').value=c.login_id||'';
+  $('ceClientView').checked=!!c.client_view;
+  openModal('coEditModal');
+}
+async function doSaveCompany(){
+  const cid=$('ceCid').value;
+  try{
+    await ajpatch('/api/admin/companies/'+cid,{name:$('ceName').value.trim(),login_id:$('ceLogin').value.trim(),client_view:$('ceClientView').checked});
+    closeModal('coEditModal');toast('Saved');renderCompanies();
+    COMPANIES=await api('/api/companies');
+  }catch(e){toast('Save failed: '+e.message)}
+}
+async function resetCompanyPass(cid){
+  if(!confirm('Reset this company\u2019s client password? The old one stops working.'))return;
+  try{
+    const r=await ajpost('/api/admin/companies/'+cid+'/reset-password');
+    $('ccLogin').textContent=r.login_id;$('ccPass').textContent=r.password;
+    openModal('coCredModal');
+  }catch(e){toast('Reset failed: '+e.message)}
+}
+async function deleteCompany(cid){
+  const name=COADMIN[cid]||cid;
+  if(!confirm('Delete "'+name+'" and ALL its leads, calls, campaigns and data? This cannot be undone.'))return;
+  try{
+    await ajdel('/api/admin/companies/'+cid);
+    toast('Company deleted');renderCompanies();
+    COMPANIES=await api('/api/companies');
+    if(CO&&CO.id===cid){CO=null;if(COMPANIES.length)setCompany(COMPANIES[0])}
+    if(!COMPANIES.length)go('companies');
+  }catch(e){toast('Delete failed: '+e.message)}
+}
+function openCompany(cid){
+  const c=(COMPANIES||[]).find(x=>x.id===cid);
+  if(c){setCompany(c);go('dash')}else toast('Company not found');
+}
+function copyCreds(){
+  const t='Login: '+$('ccLogin').textContent+'\nPassword: '+$('ccPass').textContent;
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copied')).catch(()=>toast('Copy failed — select manually'));
+}
+
 /* ================= pipeline (kanban) ================= */
 const STAGE_BAND={new:['#E6EDFF','#2E5BFF'],contacting:['#E0F2FE','#0284C7'],
   qualified:['#DDF5E5','#0E9F4E'],survey_scheduled:['#EEE6FD','#7C3AED'],survey_done:['#EEE6FD','#7C3AED'],
@@ -1500,21 +1648,25 @@ async function boot(){
   });
   try{
     const h=await api('/api/health');DEMO=h.demo_mode;FX=h.usd_inr||88;
+    try{const m=await api('/api/me');ROLE=m.role||'operator'}catch(e){ROLE='operator'}
+    // the Companies admin is operator-only
+    document.querySelectorAll('#sideNav .navitem[data-v="companies"],#bnav button[data-v="companies"]')
+      .forEach(el=>{el.style.display=ROLE==='operator'?'':'none'});
     const r=await api('/api/companies');COMPANIES=r;
     // ?company=ab-solar-live handover links must land on the right company,
     // not whatever was last used on this device
     const qs=new URLSearchParams(location.search);
     const saved=qs.get('company')||localStorage.getItem('crm_company');
-    setCompany(r.find(c=>c.id===saved)||r[0]);
-    try{const t=await api(cq('/api/tasks?filter=today'));const n=$('navTaskCnt');
-      if(t.length){n.hidden=false;n.textContent=t.length}}catch(e){}
+    if(r.length)setCompany(r.find(c=>c.id===saved)||r[0]);
+    if(CO){try{const t=await api(cq('/api/tasks?filter=today'));const n=$('navTaskCnt');
+      if(t.length){n.hidden=false;n.textContent=t.length}}catch(e){}}
   }catch(e){
     $('page').innerHTML=`<div class="empty" style="padding-top:80px"><div class="et">Could not reach the server.</div><p>${esc(e.message)}</p></div>`;
     return;
   }
-  go('dash');
+  go(COMPANIES.length?'dash':'companies');
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();['dialModal','coModal','leadModal'].forEach(closeModal)}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();['dialModal','coModal','leadModal','coNewModal','coEditModal','coCredModal'].forEach(closeModal)}});
 boot();
 </script>
 </body>

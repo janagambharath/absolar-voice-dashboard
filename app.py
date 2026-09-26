@@ -150,32 +150,51 @@ def _verify_password(pw: str, stored: str) -> bool:
 # ---------------------------------------------------------------- db ----
 init_db()
 
+# --- FRESH START (2026-09-26): the owner asked to wipe everything and
+# manage companies from a new admin screen. Runs once: clears all data
+# tables, sets a kv marker; the legacy auto-seed below is skipped after
+# the wipe so nothing resurrects on restart.
+_FRESH = kv_get("wipe_v1") == "1"
+if not _FRESH:
+    _con = db()
+    for _t in ("campaign_leads", "campaigns", "notes", "tasks",
+               "activities", "calls", "leads", "companies"):
+        try:
+            _con.execute(f"DELETE FROM {_t}")
+        except Exception:
+            pass
+    _con.commit()
+    _con.close()
+    kv_set("wipe_v1", "1")
+    _FRESH = True
+
 con = db()
-seed_company(con, id=DEFAULT_COMPANY, name="AB Solar Power Systems",
-             speko_agent_id=SPEKO_AGENT_ID, caller_id="+18059067310",
-             primary_color="#15803D")
-backfill_company(con, DEFAULT_COMPANY)
-# --- demo/live split: `ab-solar` is Bharath's demo playground; the real
-# client gets a fresh, clean company id. Runs once, idempotent. ---
-_DEMO_ID, _LIVE_ID = "ab-solar", "ab-solar-live"
-_live = con.execute(f"SELECT * FROM companies WHERE id={Q}", (_LIVE_ID,)).fetchone()
-if not _live:
-    _src = con.execute(f"SELECT * FROM companies WHERE id={Q}", (_DEMO_ID,)).fetchone()
-    seed_company(con, id=_LIVE_ID, name="AB Solar Power Systems",
-                 speko_agent_id=(_src["speko_agent_id"] if _src else SPEKO_AGENT_ID) or "",
-                 caller_id=(_src["caller_id"] if _src else "+18059067310") or "",
-                 primary_color=(_src["primary_color"] if _src else "#15803D") or "#15803D")
-    con.execute(f"UPDATE companies SET name='AB Solar (Demo)' WHERE id={Q}"
-                f" AND name='AB Solar Power Systems'", (_DEMO_ID,))
-# --- client login for ab-solar-live: login_id 'absolar', PBKDF2-SHA256 hash
-# of the generated password (plaintext handed to Bharath once, never stored
-# anywhere). A company login is locked to its own company with client view
-# forced on — set here once, idempotent. ---
-con.execute(
-    f"UPDATE companies SET login_id='absolar',"
-    f" password_hash='pbkdf2$200000$1d34394b5078f5db58b036aacfe9a42e$83f52e8100d94733ece317df5bc9638d565e0678949061eced507d359201716d'"
-    f" WHERE id={Q} AND (login_id IS NULL OR login_id='')", (_LIVE_ID,))
-con.commit()
+if not _FRESH:
+    seed_company(con, id=DEFAULT_COMPANY, name="AB Solar Power Systems",
+                 speko_agent_id=SPEKO_AGENT_ID, caller_id="+18059067310",
+                 primary_color="#15803D")
+    backfill_company(con, DEFAULT_COMPANY)
+    # --- demo/live split: `ab-solar` is Bharath's demo playground; the real
+    # client gets a fresh, clean company id. Runs once, idempotent. ---
+    _DEMO_ID, _LIVE_ID = "ab-solar", "ab-solar-live"
+    _live = con.execute(f"SELECT * FROM companies WHERE id={Q}", (_LIVE_ID,)).fetchone()
+    if not _live:
+        _src = con.execute(f"SELECT * FROM companies WHERE id={Q}", (_DEMO_ID,)).fetchone()
+        seed_company(con, id=_LIVE_ID, name="AB Solar Power Systems",
+                     speko_agent_id=(_src["speko_agent_id"] if _src else SPEKO_AGENT_ID) or "",
+                     caller_id=(_src["caller_id"] if _src else "+18059067310") or "",
+                     primary_color=(_src["primary_color"] if _src else "#15803D") or "#15803D")
+        con.execute(f"UPDATE companies SET name='AB Solar (Demo)' WHERE id={Q}"
+                    f" AND name='AB Solar Power Systems'", (_DEMO_ID,))
+    # --- client login for ab-solar-live: login_id 'absolar', PBKDF2-SHA256 hash
+    # of the generated password (plaintext handed to Bharath once, never stored
+    # anywhere). A company login is locked to its own company with client view
+    # forced on — set here once, idempotent. ---
+    con.execute(
+        f"UPDATE companies SET login_id='absolar',"
+        f" password_hash='pbkdf2$200000$1d34394b5078f5db58b036aacfe9a42e$83f52e8100d94733ece317df5bc9638d565e0678949061eced507d359201716d'"
+        f" WHERE id={Q} AND (login_id IS NULL OR login_id='')", (_LIVE_ID,))
+    con.commit()
 con.close()
 
 
@@ -1317,6 +1336,164 @@ def companies(req: Request):
             c["hide_integrations"] = 1
     # secrets (provider API keys/tokens) never leave the server
     return out
+
+
+# ------------------------- admin: manage all companies -------------------------
+def _require_operator(req: Request):
+    if getattr(req.state, "role", "") != "operator":
+        raise HTTPException(403, "operator only")
+
+
+@app.get("/api/me")
+def me(req: Request):
+    return {"role": getattr(req.state, "role", "operator"),
+            "company_id": getattr(req.state, "company_id", "")}
+
+
+def _slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-") or "company"
+    return s[:40]
+
+
+@app.get("/api/admin/companies")
+def admin_companies(req: Request):
+    """Operator-only: every company with counts + setup status."""
+    _require_operator(req)
+    con = db()
+    rows = con.execute("SELECT * FROM companies ORDER BY created_at").fetchall()
+    out = []
+    for r in rows:
+        c = dict(r)
+        n_leads = con.execute(
+            f"SELECT COUNT(*) n FROM leads WHERE company_id={Q}",
+            (c["id"],)).fetchone()["n"]
+        n_calls = con.execute(
+            f"SELECT COUNT(*) n FROM calls WHERE company_id={Q}",
+            (c["id"],)).fetchone()["n"]
+        out.append({
+            "id": c["id"], "name": c["name"],
+            "created_at": c.get("created_at"),
+            "login_id": c.get("login_id") or "",
+            "has_login": bool(c.get("password_hash")),
+            "client_view": bool(c.get("hide_integrations")),
+            "smallest_ready": bool(c.get("smallest_api_key")
+                                   and c.get("smallest_agent_id")
+                                   and c.get("smallest_from_number")),
+            "leads": n_leads, "calls": n_calls,
+        })
+    con.close()
+    return out
+
+
+@app.post("/api/admin/companies")
+async def admin_create_company(req: Request):
+    """Operator-only: create a company with a generated client login.
+    The plaintext password is returned ONCE — show it, then it's gone."""
+    _require_operator(req)
+    body = await req.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "name required")
+    con = db()
+    base = _slugify(name)
+    cid, i = base, 1
+    while con.execute(f"SELECT 1 FROM companies WHERE id={Q}",
+                      (cid,)).fetchone():
+        i += 1
+        cid = f"{base}-{i}"
+    login_base = re.sub(r"[^a-z0-9]", "", base) or "client"
+    login_id, j = login_base, 1
+    while con.execute(f"SELECT 1 FROM companies WHERE login_id={Q}",
+                      (login_id,)).fetchone():
+        j += 1
+        login_id = f"{login_base}{j}"
+    password = secrets.token_urlsafe(12)
+    con.execute(
+        f"INSERT INTO companies (id, name, slug, primary_color, login_id,"
+        f" password_hash, hide_integrations, created_at)"
+        f" VALUES ({Q},{Q},{Q},{Q},{Q},{Q},{Q},{Q})",
+        (cid, name, cid, body.get("primary_color") or "#15803D",
+         login_id, _hash_password(password), 1, now_iso()))
+    con.commit()
+    con.close()
+    return {"id": cid, "name": name, "login_id": login_id,
+            "password": password}
+
+
+@app.patch("/api/admin/companies/{cid}")
+async def admin_update_company(cid: str, req: Request):
+    """Operator-only: rename, change login_id, or flip client view."""
+    _require_operator(req)
+    body = await req.json()
+    con = db()
+    if not con.execute(f"SELECT 1 FROM companies WHERE id={Q}",
+                       (cid,)).fetchone():
+        con.close()
+        raise HTTPException(404, "company not found")
+    sets, vals = [], []
+    if body.get("name"):
+        sets.append(f"name={Q}")
+        vals.append(body["name"].strip())
+    if "login_id" in body:
+        lid = (body["login_id"] or "").strip()
+        if lid:
+            taken = con.execute(
+                f"SELECT id FROM companies WHERE login_id={Q}",
+                (lid,)).fetchone()
+            if taken and taken["id"] != cid:
+                con.close()
+                raise HTTPException(400, "login_id taken")
+        sets.append(f"login_id={Q}")
+        vals.append(lid)
+    if "client_view" in body:
+        sets.append(f"hide_integrations={Q}")
+        vals.append(1 if body["client_view"] else 0)
+    if not sets:
+        con.close()
+        raise HTTPException(400, "nothing to update")
+    con.execute(f"UPDATE companies SET {', '.join(sets)} WHERE id={Q}",
+                (*vals, cid))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.post("/api/admin/companies/{cid}/reset-password")
+def admin_reset_password(cid: str, req: Request):
+    """Operator-only: new client password, returned ONCE."""
+    _require_operator(req)
+    con = db()
+    if not con.execute(f"SELECT 1 FROM companies WHERE id={Q}",
+                       (cid,)).fetchone():
+        con.close()
+        raise HTTPException(404, "company not found")
+    password = secrets.token_urlsafe(12)
+    con.execute(f"UPDATE companies SET password_hash={Q} WHERE id={Q}",
+                (_hash_password(password), cid))
+    con.commit()
+    con.close()
+    return {"password": password}
+
+
+@app.delete("/api/admin/companies/{cid}")
+def admin_delete_company(cid: str, req: Request):
+    """Operator-only: delete a company and all its data. Irreversible."""
+    _require_operator(req)
+    con = db()
+    if not con.execute(f"SELECT 1 FROM companies WHERE id={Q}",
+                       (cid,)).fetchone():
+        con.close()
+        raise HTTPException(404, "company not found")
+    for t in ("campaign_leads", "campaigns", "notes", "tasks",
+              "activities", "calls", "leads"):
+        try:
+            con.execute(f"DELETE FROM {t} WHERE company_id={Q}", (cid,))
+        except Exception:
+            pass
+    con.execute(f"DELETE FROM companies WHERE id={Q}", (cid,))
+    con.commit()
+    con.close()
+    return {"ok": True}
 
 
 @app.patch("/api/companies/{target_id}")
@@ -3315,7 +3492,7 @@ def campaign_pause(camp_id: str, req: Request):
     return {"ok": True}
 
 
-if DEMO_MODE:
+if DEMO_MODE and not _FRESH:
     seed_demo()
 
 
