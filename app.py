@@ -2147,14 +2147,14 @@ def dial_primary(company_id, phone, lead_id=None, name="", lead=None,
 @app.post("/api/dial")
 async def manual_dial(req: Request):
     """Manual call trigger from the dashboard (per-lead Call button or
-    the dialer). Guards DNC; every dial is logged. ``provider`` selects
-    "smallest" (default, primary) or "speko" (backup); Smallest needs a key + agent +
-    caller ID saved on the company's Integrations page."""
+    the dialer). Guards DNC; every dial is logged. ``provider`` is optional:
+    when omitted the backend picks Smallest if the company has it fully
+    configured (key + agent + caller ID), else the silent Speko backup."""
     body = await req.json()
     cid = _cid(req, body.get("company", ""))
     lead_id = body.get("lead_id")
     phone = (body.get("to") or "").strip()
-    provider = str(body.get("provider") or "smallest").strip().lower()
+    provider = str(body.get("provider") or "").strip().lower()
     name = ""
     lead_ctx = None
     if lead_id:
@@ -2175,11 +2175,22 @@ async def manual_dial(req: Request):
                     "source": row["source"] or ""}
     if len(digits(phone)) < 10:
         raise HTTPException(400, "valid phone required")
+    # Provider is a backend concern: explicit ``provider`` is honored when
+    # given (API/testing), otherwise Smallest when the company has it fully
+    # configured, else the silent Speko backup.
+    if not provider:
+        comp = get_company(cid) or {}
+        sm_ready = bool(comp.get("smallest_api_key")
+                        and comp.get("smallest_agent_id")
+                        and comp.get("smallest_from_number"))
+        provider = "smallest" if sm_ready else "speko"
     if provider == "smallest":
         ok, msg = await dial_now_smallest(cid, phone, lead_id, name,
                                           lead_ctx)
-    else:
+    elif provider == "speko":
         ok, msg = dial_now(cid, phone, lead_id, name, lead=lead_ctx)
+    else:
+        raise HTTPException(400, "unknown provider")
     if not ok:
         raise HTTPException(502, msg)
     return {"ok": True, "message": msg}
