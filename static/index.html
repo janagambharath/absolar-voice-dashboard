@@ -1041,6 +1041,14 @@ async function renderIntegrations(){
   pg.innerHTML=phead('Manage','Integrations',`<span>Lead sources · ${esc(CO.name)}</span>`,'')+
   `<div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Meta Lead Ads</div><span id="metaStat"></span></div>
    <div class="cbody" id="metaBody"><div class="sk" style="height:220px"></div></div></div>
+   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">WhatsApp follow-up</div><span id="waStat"></span></div>
+   <div class="cbody" id="waBody"><div class="sk" style="height:180px"></div></div></div>
+   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">How to connect WhatsApp</div></div>
+   <div class="cbody"><ol class="steps">
+     <li><b>Create the template</b> — in WhatsApp Manager → Message templates, create a <span class="mono">Utility</span> template in <span class="mono">Telugu (te)</span> named <span class="mono">solar_call_followup</span> with body:<br><span class="mono" style="font-size:11px">నమస్తే {{1}}, AB Solar. {{2}}</span><br>Sample {{1}}: <span class="mono">Ravi Kumar గారు</span> · Sample {{2}}: <span class="mono">మీకు కాల్ చేసాం — అందలేదు…</span> — then wait for Meta's approval.</li>
+     <li><b>Get the credentials</b> — in Meta Business Settings → WhatsApp → API setup: copy the <b>Phone number ID</b> and generate a <b>permanent access token</b>. Paste both below — never in chat.</li>
+     <li><b>Test it</b> — enter your own number as the test number and hit Save. You should get the Telugu template on WhatsApp within seconds.</li>
+   </ol><div class="small">After every outbound call the lead automatically gets one WhatsApp: missed-call nudge when they don't pick up, next-step nudge when they're interested or asked for a callback. Leads who said no are never messaged.</div></div></div>
    <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">How to connect your Facebook lead ads</div></div>
    <div class="cbody"><ol class="steps">
      <li><b>Get a Page access token</b> — in Meta Business Settings give a system user the <span class="mono">leads_retrieval</span> permission on your Page, or generate a token in Graph API Explorer. Paste it below — never in chat.</li>
@@ -1077,6 +1085,39 @@ async function renderIntegrations(){
       <span class="av">${esc(x.title)}${x.name?` — <b>${esc(x.name)}</b>`:''} <span class="small">${esc(x.detail||'')}</span></span></div>`).join('')
       :'<div class="small">No auto-dials yet.</div>';
   }catch(e){$('metaBody').innerHTML='<div class="small">Could not load Meta settings.</div>'}
+  try{
+    const w=await api(cq('/api/integrations/whatsapp'));
+    $('waStat').innerHTML=w.connected?'<span class="pill p-green">Connected</span>':'<span class="pill p-grey">Not connected</span>';
+    $('waBody').innerHTML=`
+      <div class="arow"><span class="ak">Template</span><span class="av mono">${esc(w.template||'solar_call_followup')}</span></div>
+      <div class="frow"><label class="fld">Phone number ID — from WhatsApp API setup in Business Settings</label>
+        <input id="waPn" type="text" class="ctl mono" style="width:100%" placeholder="${w.phone_number_id_set?'Saved — paste a new ID to replace it':'Paste phone number ID'}" autocomplete="off"></div>
+      <div class="frow"><label class="fld">Permanent access token — used only to send your follow-ups</label>
+        <input id="waTok" type="password" class="ctl mono" style="width:100%" placeholder="${w.connected?'Saved — paste a new token to replace it':'Paste access token'}" autocomplete="off"></div>
+      <div class="frow"><label class="fld">Template name — must match the approved template exactly</label>
+        <input id="waTpl" type="text" class="ctl mono" style="width:100%" value="${esc(w.template||'solar_call_followup')}"></div>
+      <div class="frow"><label class="fld">Test number (optional) — sends one test template when you save</label>
+        <input id="waTest" type="tel" class="ctl mono" style="width:100%" placeholder="e.g. 7995854994"></div>
+      <div class="frow"><label class="fld">Auto follow-up</label>
+        <div style="padding-top:9px"><label class="switch"><input type="checkbox" id="waEn" ${w.enabled?'checked':''}><span></span>WhatsApp the lead after every outbound call</label></div></div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn primary" onclick="saveWa()">${ic('check',14)} Save</button>
+      </div>
+      <div class="small" style="margin-top:8px">WhatsApp charges per template message (roughly ₹0.30–0.80). The token is stored in your dashboard's own database and used only for these follow-ups.</div>`;
+  }catch(e){$('waBody').innerHTML='<div class="small">Could not load WhatsApp settings.</div>'}
+}
+async function saveWa(){
+  const body={enabled:$('waEn').checked};
+  const pn=$('waPn').value.trim();if(pn)body.phone_number_id=pn;
+  const tk=$('waTok').value.trim();if(tk)body.token=tk;
+  const tp=$('waTpl').value.trim();if(tp)body.template=tp;
+  const tt=$('waTest').value.trim();if(tt)body.test_to=tt;
+  if(body.enabled&&!confirm('Turn on WhatsApp follow-ups? Every outbound call will message the lead on WhatsApp right after it ends. WhatsApp charges per template message.'))return;
+  try{
+    const r=await api(cq('/api/integrations/whatsapp'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast(r&&r.test?(r.test.ok?'Saved — test message sent, check WhatsApp':'Saved — test FAILED: '+r.test.detail):'WhatsApp integration saved');
+    renderIntegrations();
+  }catch(e){toast('Save failed: '+e.message)}
 }
 async function saveMeta(){
   const body={autodial:$('metaAuto').checked,daily_cap:parseInt($('metaCap').value,10)||50};
