@@ -243,14 +243,14 @@ DEMO_TALKS = {
         ("lead", "అవునండి."),
         ("agent", "నేను Sri Surya Solar నుండి Priya ని మాట్లాడుతున్నాను. మీరు Facebook లో enquiry చేసారు కదా."),
         ("lead", "నాకు interest లేదండి, వద్దు."),
-        ("agent", "సరే అండి, thank you."),
+        ("agent", "సరే, thank you."),
     ],
     "callback": [
         ("agent", "హలో... ఆ, {name} మాట్లాడుతున్నారా?"),
         ("lead", "అవునండి."),
         ("agent", "నేను Sri Surya Solar నుండి Priya ని మాట్లాడుతున్నాను. మీరు enquiry చేసారు కదా."),
         ("lead", "అవునండి, కానీ ఇప్పుడు busy గా ఉన్నాను. సాయంత్రం చేయండి."),
-        ("agent", "సరే అండి, సాయంత్రం మళ్ళీ call చేస్తాను."),
+        ("agent", "సరే, సాయంత్రం మళ్ళీ call చేస్తాను."),
     ],
 }
 
@@ -1390,10 +1390,15 @@ async def task_done(task_id: str, req: Request):
 # Per-call personalization: production Meta leads get their OWN name and
 # details in the greeting + LEAD block, via Speko's per-call firstMessage
 # and systemPrompt overrides. The agent's stored prompt is only a fallback.
-SOLAR_PROMPT_TEMPLATE = """LANGUAGE (ABSOLUTE RULE — ఇది కింద ఉన్న అన్నిటికంటే ముఖ్యం):
+SOLAR_PROMPT_TEMPLATE = """RULE 0 — NO-INPUT / UNCLEAR AUDIO (highest priority — read this first, it overrides everything below):
+If the caller's audio is empty, silent, or you cannot understand it, your ENTIRE response must be exactly this one sentence, with no other words before or after it: "సారీ, కొంచెం మళ్ళీ చెప్తారా?"
+Never translate it. Never rephrase it. Never say it in English. There is no other correct response to unclear audio.
+
+LANGUAGE (ABSOLUTE RULE — ఇది కింద ఉన్న అన్నిటికంటే ముఖ్యం):
 - నువ్వు మాట్లాడే ప్రతి పదం Teluguలోనే ఉండాలి. Englishలో ఒక్క పదం కూడా పలకవద్దు — ఒక్క "sorry" కూడా వద్దు.
-- అర్థం కాకపోతే, వినపడకపోతే, లేదా ఏమైనా doubt వస్తే — ఈ ఒక్క line మాత్రమే వాడు, అక్షరం పొల్లుపోకుండా: "సారీ అండి, కొంచెం మళ్ళీ చెప్తారా?"
+- అర్థం కాకపోతే, వినపడకపోతే, లేదా ఏమైనా doubt వస్తే — ఈ ఒక్క line మాత్రమే వాడు, అక్షరం పొల్లుపోకుండా: "సారీ, కొంచెం మళ్ళీ చెప్తారా?"
 - BANNED — ఇవి ఎప్పుడూ, ఏ పరిస్థితిలోనూ వాడవద్దు: "Sorry, I didn't quite catch that", "could you say that again", "could you repeat that", "I didn't understand", "please repeat", లేదా ఏ English sentence అయినా.
+- BANNED word: "అండి" — ఎప్పుడూ వాడవద్దు, ఏ రూపంలోనూ. Respect గారు/మీరుతో చూపించు.
 
 నువ్వు Priya — 28 ఏళ్ల అమ్మాయి, Dilsukhnagarలో ఉంటావు, Sri Surya Solarలో 2 years నుంచి customersతో మాట్లాడుతున్నావు. Enquiry ఇచ్చిన వాళ్లకి call చేసి, details confirm చేసి, qualify అయితే "మా team contact చేస్తారు" అని చెప్పి close చేస్తావు. తక్కువ మాట్లాడు — అవసరమైనది మాత్రమే.
 
@@ -1408,12 +1413,12 @@ STYLE:
 
 FLOW:
 1. "{greeting_line}"
-   Wrong person: "సరే, {lead_name} ఎప్పుడు దొరుకుతారో చెప్తారా?" → end.
+   Wrong person: "సరే,{lead_name} ఎప్పుడు దొరుకుతారో చెప్తారా?" → end.
 2. "నేను Priyaని, Sri Surya Solar నుంచి. మీ rooftop solar enquiry గురించి — terrace మీద panelsకి space ఉందా?"
    (LEAD blockలో property type చూసి, flat/apartment అయితే terrace access ఉందా అని అడుగు.)
    లేదు: → NOT QUALIFIED.
 3. "నెలకి current bill ఎంత వస్తుంది?"
-4. "మీ enquiry qualified అయింది. మా team site survey కోసం contact చేస్తారు. సరే {lead_name}." → end.
+4. "మీ enquiry qualified అయింది. మా team site survey కోసం contact చేస్తారు. సరే{lead_name}." → end.
 
 NOT QUALIFIED: "మీ requirement అర్థమైంది — కానీ rooftop solar మీకు suit అవ్వదు. Enquiry ఇక్కడితో close చేస్తున్నా." → end.
 
@@ -1525,11 +1530,14 @@ def personalize_solar_call(lead, campaign_kind=None, campaign_params=None):
     """
     lead = lead or {}
     name = (lead.get("name") or "").strip()
-    disp_name = name or "అండి"
+    disp_name = name or ""
+    # lead_name carries its own leading space (" Deva" / "") so template
+    # lines read naturally with or without a name: "సరే, Deva ఎప్పుడు…"
+    lead_name = f" {name}" if name else ""
     if name:
         greeting = f"హలో... ఆ, {name} మాట్లాడుతున్నారా?"
     else:
-        greeting = "హలో... నమస్తే అండి?"
+        greeting = "హలో... నమస్తే?"
     facts = []
     if name:
         facts.append(name)
@@ -1551,7 +1559,7 @@ def personalize_solar_call(lead, campaign_kind=None, campaign_params=None):
         facts.append({"facebook": "Facebook ad"}.get(src, src))
     lead_block = " | ".join(facts) if facts else "details తెలియవు — politely అడిగి తెలుసుకో"
     prompt = SOLAR_PROMPT_TEMPLATE.format(
-        lead_block=lead_block, greeting_line=greeting, lead_name=disp_name)
+        lead_block=lead_block, greeting_line=greeting, lead_name=lead_name)
     if campaign_kind and campaign_kind in CAMPAIGN_KINDS:
         params = dict(campaign_params or {})
         params.setdefault("name", disp_name)
