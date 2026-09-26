@@ -902,7 +902,9 @@ async function doSaveCompany(){
     const k=$('ceSmallestKey').value.trim();
     if(k)body.smallest_api_key=k;
     await ajpatch('/api/admin/companies/'+cid,body);
-    closeModal('coEditModal');toast('Saved');renderCompanies();
+    closeModal('coEditModal');
+    toast(k?'Saved — fetching calls…':'Saved');
+    renderCompanies();
     COMPANIES=await api('/api/admin/companies');
   }catch(e){toast('Save failed: '+e.message)}
 }
