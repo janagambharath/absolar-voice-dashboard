@@ -2937,6 +2937,10 @@ def _assert_integrations_visible(req: Request, cid: str):
     # (integrations, wallet billing, client-view toggle) are never theirs
     if getattr(req.state, "role", "") == "company":
         raise HTTPException(403, "operator only")
+    # the operator configures integrations for client companies, so the
+    # client-view hide flag never applies to them
+    if getattr(req.state, "role", "") == "operator":
+        return
     comp = get_company(cid) or {}
     if comp.get("hide_integrations"):
         raise HTTPException(403, "integrations hidden for this company")
