@@ -328,6 +328,15 @@ ol.steps b{color:var(--ink);font-weight:600}
 .talkbar{height:6px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:6px}
 .talkbar i{display:block;height:100%;background:var(--accent)}
 .src-tag{font-size:10px;font-weight:700;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase}
+.pbar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;margin-top:10px}
+.pbar i{display:block;height:100%;background:var(--accent)}
+.kindgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kindcard{text-align:left;background:var(--surface);border:2px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.kindcard.on{border-color:var(--accent);background:var(--accent-tint)}
+.statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center}
+.sv{font-size:17px;font-weight:800}
+.sk2{font-size:10px;color:var(--text-3);margin-top:2px}
 
 /* modal */
 .modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;padding:16px}
@@ -417,6 +426,7 @@ ol.steps b{color:var(--ink);font-weight:600}
       <button class="navitem" data-v="pipe" title="Pipeline"><i data-ic="kanban"></i><span class="nlab">Pipeline</span></button>
       <button class="navitem" data-v="leads" title="Leads"><i data-ic="users"></i><span class="nlab">Leads</span></button>
       <button class="navitem" data-v="calls" title="Calls"><i data-ic="phone"></i><span class="nlab">Calls</span></button>
+      <button class="navitem" data-v="campaigns" title="Campaigns"><i data-ic="megaphone"></i><span class="nlab">Campaigns</span></button>
       <button class="navitem" data-v="agent" title="Agent"><i data-ic="sliders"></i><span class="nlab">Agent</span></button>
       <button class="navitem" data-v="tasks" title="Follow-ups"><i data-ic="tasks"></i><span class="nlab">Follow-ups</span><span class="cnt" id="navTaskCnt" hidden></span></button>
       <button class="navitem" data-v="billing" title="Billing"><i data-ic="wallet"></i><span class="nlab">Billing</span></button>
@@ -449,6 +459,7 @@ ol.steps b{color:var(--ink);font-weight:600}
   <button data-v="pipe"><i data-ic="kanban"></i>Pipeline</button>
   <button data-v="leads"><i data-ic="users"></i>Leads</button>
   <button data-v="calls"><i data-ic="phone"></i>Calls</button>
+  <button data-v="campaigns"><i data-ic="megaphone"></i>Camps</button>
   <button data-v="agent"><i data-ic="sliders"></i>Agent</button>
   <button data-v="tasks"><i data-ic="tasks"></i>Tasks</button>
   <button data-v="integrations"><i data-ic="link"></i>Meta</button>
@@ -475,6 +486,39 @@ ol.steps b{color:var(--ink);font-weight:600}
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('dialModal')">Cancel</button>
       <button class="btn primary" id="dialGo" onclick="doDial()"><i data-ic="phone"></i>Call now</button>
+    </div>
+  </div>
+</div>
+
+<!-- new campaign modal -->
+<div class="modal" id="campModal">
+  <div class="scrim show" onclick="closeModal('campModal')"></div>
+  <div class="mbox">
+    <h3>New campaign</h3>
+    <div class="msub">Priya calls the list in Telugu, one by one, ~45s apart.</div>
+    <div class="frow"><label class="fld">Campaign type</label>
+      <div id="campKinds" class="kindgrid"></div></div>
+    <div class="frow"><label class="fld">Name</label>
+      <input class="ctl" id="campName" style="width:100%" placeholder="e.g. March dead leads"></div>
+    <div class="frow"><label class="fld">Leads from</label>
+      <div class="rowflex" style="gap:8px;margin-bottom:8px">
+        <button class="btn sm" id="csCsv" onclick="campSrc('csv')">CSV upload</button>
+        <button class="btn sm" id="csStage" onclick="campSrc('stage')">Pipeline stage</button>
+      </div>
+      <div id="campSrcCsv">
+        <input type="file" id="campFile" accept=".csv" class="ctl" style="width:100%">
+        <div class="small mt8">Columns: name, phone, city, amount (amount only matters for payment reminders).</div>
+      </div>
+      <div id="campSrcStage" hidden>
+        <select class="ctl" id="campStage" style="width:100%"></select>
+        <div class="small mt8">Every lead currently in that stage gets called.</div>
+      </div>
+    </div>
+    <div class="frow" id="campReviewWrap" hidden><label class="fld">Google review link</label>
+      <input class="ctl" id="campReviewLink" style="width:100%" placeholder="https://g.page/…"></div>
+    <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal('campModal')">Cancel</button>
+      <button class="btn primary" onclick="createCampaign()">Create</button>
     </div>
   </div>
 </div>
@@ -544,6 +588,7 @@ dash:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7
 kanban:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9.5" y1="3" x2="9.5" y2="21"/><line x1="14.5" y1="3" x2="14.5" y2="21"/>',
 ban:'<circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>',
 tasks:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+megaphone:'<path d="M3 11l18-8-8 18-2.5-7.5z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
 play:'<polygon points="5 3 19 12 5 21 5 3"/>',
 mic:'<rect x="9" y="2" width="6" height="12" rx="3" ry="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/>',
 star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
@@ -590,7 +635,7 @@ function setCompany(c){
 function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
 /* ================= router ================= */
-const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,agent:renderAgent,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
+const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,agent:renderAgent,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
 function go(v){VIEW=v;
   document.querySelectorAll('#sideNav .navitem').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
@@ -887,7 +932,7 @@ async function renderCalls(){
     const calls=await api(cq('/api/calls'));
     $('callMeta').innerHTML=`<span>${calls.length} calls</span><span class="dot"></span><span>tap a row for the full analysis</span>`;
     $('callRows').innerHTML=calls.map(c=>`<tr onclick="openCall('${c.id}')">
-      <td style="font-weight:600">${esc(c.lead_name||c.to_number||'—')}</td>
+      <td><div style="font-weight:600">${esc(c.lead_name||c.to_number||'—')}</div>${qflagPills(c)}</td>
       <td>${c.disposition?`<span class="pill ${c.disposition.startsWith('qualified')?'p-green':c.disposition.startsWith('not_interested')||c.disposition==='dnc'?'p-red':'p-grey'}">${esc(DISP_LABEL[c.disposition]||c.disposition)}</span>`:`<span class="small">${esc((c.outcome||'—').replace(/_/g,' '))}</span>`}</td>
       <td>${c.intent_verdict?`<span class="pill ${INTENT_PILL[c.intent_verdict]||'p-grey'}">${INTENT_LABEL[c.intent_verdict]||c.intent_verdict}</span>`:'<span class="small">—</span>'}</td>
       <td class="r mono">${mmss(c.duration_seconds)}</td>
@@ -928,6 +973,7 @@ async function openCall(id){
       ${c.talk_ratio!=null?`<div class="small mt8">Lead talked ${Math.round(c.talk_ratio*100)}% of the call</div><div class="talkbar"><i style="width:${Math.round(c.talk_ratio*100)}%"></i></div>`:''}</div></div>`:''}
     ${factRows?`<div class="ana"><div class="ak">Extracted facts <span class="src-tag">· from speko report</span></div><div class="factgrid">${factRows}</div></div>`:''}
     ${objs.length?`<div class="ana"><div class="ak">Objections raised <span class="src-tag">· detected by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap">${objs.map(o=>`<span class="pill p-amber">${esc(o)}</span>`).join('')}</div></div>`:''}
+    ${qflags(c).length?`<div class="ana"><div class="ak">Call quality <span class="src-tag">· flagged by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap;gap:4px">${qflags(c).map(x=>`<span class="pill p-amber">${QFLAG_LABEL[x]||x}</span>`).join('')}</div><div class="small mt8">Tap the transcript below to verify.</div></div>`:''}
     ${c.next_action?`<div class="ana"><div class="ak">Suggested next action <span class="src-tag">· detected by dashboard</span></div>
       <div class="av" style="font-weight:600">${esc(c.next_action)}</div>
       <div class="mt8 rowflex" style="flex-wrap:wrap">
@@ -955,6 +1001,137 @@ async function applyNextAction(){
   if(!CD.lead_id)return;
   await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:CD.lead_id,title:CD.next_action,kind:'followup'})});
   toast('Follow-up task created');
+}
+
+/* ================= campaigns ================= */
+const QFLAG_LABEL={english_fallback:'English fallback',lead_silent:'Lead silent',agent_monologue:'Agent monologue',too_short:'Too short'};
+function qflags(c){try{return JSON.parse(c.quality_flags||'[]')}catch(e){return[]}}
+function qflagPills(c){const f=qflags(c);return f.length?`<div class="rowflex" style="gap:4px;margin-top:4px;flex-wrap:wrap">${f.map(x=>`<span class="pill p-amber">${QFLAG_LABEL[x]||x}</span>`).join('')}</div>`:''}
+const CAMP_STATUS_PILL={draft:'p-grey',running:'p-green',paused:'p-amber',done:'p-blue'};
+const CAMP_LEAD_PILL={queued:'p-grey',calling:'p-blue',done:'p-green',failed:'p-red',skipped:'p-amber'};
+let CAMP_KINDS={};
+
+function campCard(c){
+  const pct=c.total?Math.round(c.done/c.total*100):0;
+  return `<div class="card" style="margin-bottom:12px;cursor:pointer" onclick="openCampaign('${c.id}')">
+    <div class="rowflex" style="justify-content:space-between;align-items:flex-start">
+      <div style="min-width:0"><div style="font-weight:700">${esc(c.name)}</div>
+      <div class="small">${esc(c.kind_label)} · ${c.done}/${c.total} called</div></div>
+      <span class="pill ${CAMP_STATUS_PILL[c.status]||'p-grey'}">${c.status}</span>
+    </div>
+    <div class="pbar"><i style="width:${pct}%"></i></div>
+    <div class="rowflex small" style="gap:14px;margin-top:8px">
+      <span><b>${c.interested}</b> interested</span>
+      <span class="mono">${inr(c.cost_inr)} spent</span>
+    </div>
+  </div>`;
+}
+
+async function renderCampaigns(){
+  const pg=$('page');
+  pg.innerHTML=phead('Sell','Campaigns',`<span id="campMeta">Loading…</span>`,
+    `<button class="btn sm primary" onclick="openNewCampaign()">${ic('plus',14)} New campaign</button>`)+
+  `<div id="campList"></div>`;
+  hydrateIcons(pg);
+  try{
+    const r=await api(cq('/api/campaigns'));
+    CAMP_KINDS=r.kinds||{};
+    $('campMeta').textContent=r.items.length+' campaigns';
+    $('campList').innerHTML=r.items.map(campCard).join('')||
+      `<div class="empty"><div class="et">No campaigns yet.</div><p>Revive dead leads, confirm surveys, collect reviews, chase payments — Priya calls them all in Telugu, one by one.</p></div>`;
+    hydrateIcons(pg);
+  }catch(e){$('campList').innerHTML=`<div class="empty"><div class="et">Could not load.</div></div>`}
+}
+
+async function openCampaign(id){
+  $('dhead').innerHTML='<div class="sk" style="height:90px"></div>';$('dbody').innerHTML='';
+  $('scrim').classList.add('show');$('drawer').classList.add('show');
+  const c=await api(cq(`/api/campaigns/${id}`));
+  const pct=c.total?Math.round(c.done/c.total*100):0;
+  const cpi=c.interested?Math.round(c.cost_inr/c.interested):0;
+  $('dhead').innerHTML=`<div class="trow"><div style="flex:1;min-width:0">
+    <h2>${esc(c.name)}</h2>
+    <div class="sub">${esc(c.kind_label)} · created ${fday(c.created_at)}</div>
+    <div class="mt8 rowflex"><span class="pill ${CAMP_STATUS_PILL[c.status]||'p-grey'}">${c.status}</span></div>
+    </div><button class="iconbtn" onclick="closeDrawer()">${ic('x',16)}</button></div>
+    <div class="dactions rowflex">
+      ${c.status==='running'
+        ?`<button class="btn sm" onclick="pauseCampaign('${c.id}')">${ic('pause',14)} Pause</button>`
+        :c.status!=='done'
+        ?`<button class="btn sm primary" onclick="startCampaign('${c.id}')">${ic('phone',14)} Start calling</button>`:''}
+    </div>`;
+  $('dbody').innerHTML=`
+    <div class="statgrid">
+      <div class="stat"><div class="sv">${c.done}/${c.total}</div><div class="sk2">called</div></div>
+      <div class="stat"><div class="sv">${c.interested}</div><div class="sk2">interested</div></div>
+      <div class="stat"><div class="sv">${inr(c.cost_inr)}</div><div class="sk2">spent</div></div>
+      <div class="stat"><div class="sv">${c.interested?inr(cpi):'—'}</div><div class="sk2">per interested</div></div>
+    </div>
+    <div class="pbar" style="margin:12px 0"><i style="width:${pct}%"></i></div>
+    ${c.status==='draft'?`<div class="small mb12">Starting dials the list one by one, ~45s apart. Roughly ${inr(c.total*6)} for ${c.total} calls.</div>`:''}
+    ${c.status==='running'?`<div class="small mb12">Calling now — keep this tab or the dashboard open. Pause anytime.</div>`:''}
+    <h3 style="font-size:13px;font-weight:700;margin:16px 0 8px">Leads</h3>
+    ${c.leads.map(l=>`<div class="trow" style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0"><div style="font-weight:600">${esc(l.name||l.phone)}</div><div class="small mono">${esc(l.phone)}</div></div>
+      <span class="pill ${CAMP_LEAD_PILL[l.status]||'p-grey'}">${l.status}</span>
+    </div>`).join('')||'<div class="small">No leads.</div>'}`;
+  hydrateIcons($('drawer'));
+}
+async function startCampaign(id){
+  if(!confirm('Start calling? Roughly ₹6 per call, ~45s between dials.'))return;
+  await api(cq(`/api/campaigns/${id}/start`),{method:'POST'});
+  toast('Campaign started');openCampaign(id);renderCampaigns();
+}
+async function pauseCampaign(id){
+  await api(cq(`/api/campaigns/${id}/pause`),{method:'POST'});
+  toast('Campaign paused');openCampaign(id);renderCampaigns();
+}
+
+/* ---- new campaign modal ---- */
+let CAMP_KIND='revival',CAMP_SRC='csv';
+function openNewCampaign(){
+  CAMP_KIND='revival';CAMP_SRC='csv';
+  $('campKinds').innerHTML=Object.entries(CAMP_KINDS).map(([k,v])=>
+    `<button class="kindcard ${k==='revival'?'on':''}" data-k="${k}" onclick="pickKind('${k}')">
+      <div style="font-weight:700;font-size:13px">${esc(v.label)}</div><div class="small">${esc(v.desc)}</div></button>`).join('');
+  $('campStage').innerHTML=Object.entries(STAGE_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  $('campName').value='';$('campReviewLink').value='';
+  campSrc('csv');
+  openModal('campModal');
+}
+function pickKind(k){
+  CAMP_KIND=k;
+  document.querySelectorAll('#campKinds .kindcard').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  $('campReviewWrap').hidden=k!=='review';
+  const hint={survey_confirm:'survey_scheduled',review:'won',payment:'negotiation'};
+  if(hint[k])$('campStage').value=hint[k];
+}
+function campSrc(s){
+  CAMP_SRC=s;
+  $('csCsv').classList.toggle('primary',s==='csv');
+  $('csStage').classList.toggle('primary',s==='stage');
+  $('campSrcCsv').hidden=s!=='csv';
+  $('campSrcStage').hidden=s!=='stage';
+}
+async function createCampaign(){
+  const kindLabel=(CAMP_KINDS[CAMP_KIND]||{}).label||CAMP_KIND;
+  const name=$('campName').value.trim()||`${kindLabel} ${new Date().toISOString().slice(0,10)}`;
+  const params={};
+  if(CAMP_KIND==='review'&&$('campReviewLink').value.trim())params.review_link=$('campReviewLink').value.trim();
+  try{
+    let r;
+    if(CAMP_SRC==='csv'){
+      const f=$('campFile').files[0];
+      if(!f){toast('Choose a CSV file');return}
+      const text=await f.text();
+      const qs=new URLSearchParams({company:CO.id,kind:CAMP_KIND,name,params:JSON.stringify(params)});
+      r=await api('/api/campaigns/import?'+qs,{method:'POST',headers:{'Content-Type':'text/csv'},body:text});
+    }else{
+      r=await api(cq('/api/campaigns'),{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({kind:CAMP_KIND,name,stage:$('campStage').value,params})});
+    }
+    closeModal('campModal');toast(`Campaign created — ${r.total} leads`);renderCampaigns();
+  }catch(e){toast(e.message)}
 }
 
 /* ================= tasks ================= */
