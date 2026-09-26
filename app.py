@@ -61,7 +61,7 @@ DASH_PASS = os.environ.get("DASH_PASS", "")
 USD_INR = 88  # approximate; display only
 SYNC_CONCURRENCY = 10
 BILLING_CACHE_S = 900
-AGENT_CACHE_S = 3600
+AGENT_CACHE_S = 300
 DEFAULT_COMPANY = "ab-solar"
 
 app = FastAPI(title="REvorax Voice-AI CRM")
