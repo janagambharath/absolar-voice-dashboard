@@ -590,8 +590,6 @@ ol.steps b{color:var(--ink);font-weight:600}
     <div class="frow"><label class="fld"><input type="checkbox" id="ceClientView" style="margin-right:8px">Client view — hide Integrations & wallet from this login</label></div>
     <hr class="hr">
     <div class="msub" style="margin-bottom:10px">Voice provider wiring — operator only. Client logins never see these.</div>
-    <div class="frow"><label class="fld">Speko agent ID</label>
-      <input class="ctl mono" id="ceSpekoAgent" style="width:100%" placeholder="agent_…"></div>
     <div class="frow"><label class="fld">Smallest agent ID</label>
       <input class="ctl mono" id="ceSmallestAgent" style="width:100%" placeholder="6ab80…"></div>
     <div class="frow"><label class="fld">Smallest API key</label>
@@ -885,7 +883,6 @@ async function editCompany(cid){
   $('ceName').value=c.name;$('ceLogin').value=c.login_id||'';
   $('ceClientView').checked=!!c.client_view;
   // operator-only wiring — every ID lives here
-  $('ceSpekoAgent').value=c.speko_agent_id||'';
   $('ceSmallestAgent').value=c.smallest_agent_id||'';
   $('ceSmallestKey').value='';
   $('ceSmallestKey').placeholder=c.has_smallest_api_key?'Set — leave blank to keep':'Not set';
@@ -898,7 +895,6 @@ async function doSaveCompany(){
   const cid=$('ceCid').value;
   try{
     const body={name:$('ceName').value.trim(),login_id:$('ceLogin').value.trim(),client_view:$('ceClientView').checked,
-      speko_agent_id:$('ceSpekoAgent').value.trim(),
       smallest_agent_id:$('ceSmallestAgent').value.trim(),
       smallest_from_number:$('ceSmallestFrom').value.trim(),
       caller_id:$('ceCallerId').value.trim(),
@@ -1519,7 +1515,7 @@ async function renderIntegrations(){
         <button class="btn primary" onclick="saveSmallest()">${ic('check',14)} Save</button>
         <button class="btn" onclick="testSmallest()">${ic('refresh',14)} Test connection</button>
       </div>
-      <div class="small" style="margin-top:8px">The key is stored in your dashboard's own database and used only to sync calls and place manual dials. Nothing rents numbers or places calls on its own. Calls go through Smallest automatically, with a silent backup provider if Smallest isn't configured.</div>`;
+      <div class="small" style="margin-top:8px">The key is stored in your dashboard's own database and used only to sync calls and place manual dials. Nothing rents numbers or places calls on its own. Calls go through Smallest; dialing needs the agent, a valid key and a caller number.</div>`;
   }catch(e){$('smBody').innerHTML='<div class="small">Could not load Smallest settings.</div>'}
 }
 async function saveWa(){
