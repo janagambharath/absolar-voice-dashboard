@@ -2070,17 +2070,37 @@ def dial_now(company_id, phone, lead_id=None, name="", lead=None,
         return False, f"dial failed: {e}"
 
 
+def dial_primary(company_id, phone, lead_id=None, name="", lead=None,
+                 campaign_id=None, campaign_kind=None, campaign_params=None):
+    """Smallest primary, Speko backup. Uses Smallest when the company has it
+    fully configured (key + agent + caller ID), otherwise Speko.
+    Returns (ok, message). Sync — safe for webhook/background paths."""
+    comp = get_company(company_id) or {}
+    sm_ready = bool(comp.get("smallest_api_key")
+                    and comp.get("smallest_agent_id")
+                    and comp.get("smallest_from_number"))
+    if sm_ready:
+        try:
+            return asyncio.run(
+                dial_now_smallest(company_id, phone, lead_id, name, lead=lead))
+        except Exception as e:
+            return False, f"smallest dial failed: {e}"
+    return dial_now(company_id, phone, lead_id, name, lead=lead,
+                    campaign_id=campaign_id, campaign_kind=campaign_kind,
+                    campaign_params=campaign_params)
+
+
 @app.post("/api/dial")
 async def manual_dial(req: Request):
     """Manual call trigger from the dashboard (per-lead Call button or
     the dialer). Guards DNC; every dial is logged. ``provider`` selects
-    "speko" (default) or "smallest"; Smallest needs a key + agent +
+    "smallest" (default, primary) or "speko" (backup); Smallest needs a key + agent +
     caller ID saved on the company's Integrations page."""
     body = await req.json()
     cid = _cid(req, body.get("company", ""))
     lead_id = body.get("lead_id")
     phone = (body.get("to") or "").strip()
-    provider = str(body.get("provider") or "speko").strip().lower()
+    provider = str(body.get("provider") or "smallest").strip().lower()
     name = ""
     lead_ctx = None
     if lead_id:
@@ -2656,8 +2676,8 @@ async def fb_lead(req: Request):
                                      "Auto-dial skipped",
                                      f"daily cap ({cap}) reached")
                     else:
-                        ok, msg = dial_now(cid, phone, lid, name,
-                                           lead=lead_ctx)
+                        ok, msg = dial_primary(cid, phone, lid, name,
+                                              lead=lead_ctx)
                         log_activity(cid, lid, "auto_dial",
                                      f"Auto-dial {'placed' if ok else 'failed'}",
                                      msg)
