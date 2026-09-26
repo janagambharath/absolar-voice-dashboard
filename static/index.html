@@ -429,7 +429,6 @@ ol.steps b{color:var(--ink);font-weight:600}
       <button class="navitem" data-v="leads" title="Leads"><i data-ic="users"></i><span class="nlab">Leads</span></button>
       <button class="navitem" data-v="calls" title="Calls"><i data-ic="phone"></i><span class="nlab">Calls</span></button>
       <button class="navitem" data-v="campaigns" title="Campaigns"><i data-ic="megaphone"></i><span class="nlab">Campaigns</span></button>
-      <button class="navitem" data-v="agent" title="Agent"><i data-ic="sliders"></i><span class="nlab">Agent</span></button>
       <button class="navitem" data-v="tasks" title="Follow-ups"><i data-ic="tasks"></i><span class="nlab">Follow-ups</span><span class="cnt" id="navTaskCnt" hidden></span></button>
       <button class="navitem" data-v="billing" title="Billing"><i data-ic="wallet"></i><span class="nlab">Billing</span></button>
       <button class="navitem" data-v="integrations" title="Integrations"><i data-ic="link"></i><span class="nlab">Integrations</span></button>
@@ -462,7 +461,6 @@ ol.steps b{color:var(--ink);font-weight:600}
   <button data-v="leads"><i data-ic="users"></i>Leads</button>
   <button data-v="calls"><i data-ic="phone"></i>Calls</button>
   <button data-v="campaigns"><i data-ic="megaphone"></i>Camps</button>
-  <button data-v="agent"><i data-ic="sliders"></i>Agent</button>
   <button data-v="tasks"><i data-ic="tasks"></i>Tasks</button>
   <button data-v="billing"><i data-ic="wallet"></i>Billing</button>
   <button data-v="integrations"><i data-ic="link"></i>Meta</button>
@@ -486,11 +484,6 @@ ol.steps b{color:var(--ink);font-weight:600}
       <input class="ctl" id="dialNum" style="width:100%" placeholder="+91 …" inputmode="tel"></div>
     <div class="frow"><label class="fld">Lead (optional)</label>
       <select class="ctl" id="dialLead" style="width:100%"><option value="">— none —</option></select></div>
-    <div class="frow"><label class="fld">Call provider</label>
-      <select class="ctl" id="dialProvider" style="width:100%">
-        <option value="smallest">Smallest Atoms — primary</option>
-        <option value="speko">Speko — backup</option>
-      </select></div>
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('dialModal')">Cancel</button>
       <button class="btn primary" id="dialGo" onclick="doDial()"><i data-ic="phone"></i>Call now</button>
@@ -536,7 +529,7 @@ ol.steps b{color:var(--ink);font-weight:600}
   <div class="scrim show" onclick="closeModal('coModal')"></div>
   <div class="mbox">
     <h3>Companies</h3>
-    <div class="msub">Each company has its own leads, pipeline and agent. Call credits come from your one shared Speko balance.</div>
+    <div class="msub">Each company has its own leads, pipeline and agent. Calls go out through your connected voice provider.</div>
     <div id="coList"></div>
   </div>
 </div>
@@ -649,7 +642,7 @@ function setCompany(c){
 function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
 /* ================= router ================= */
-const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,agent:renderAgent,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
+const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
 function go(v){
   // block the Integrations view outright for client companies
   if(v==='integrations'&&CO&&CO.hide_integrations)v='dash';
@@ -703,7 +696,7 @@ async function renderDash(){
     const cards=[
       {cls:'hero',lbl:'Qualified leads',val:k.qualified,d:'up',dt:k.qualify_rate+'% of connects',cap:'from answered calls',go:'pipe'},
       {lbl:'Connect rate',val:k.connect_rate+'%',d:'flat',dt:k.connected+' of '+k.dials+' dials',cap:'outbound dials',go:'calls'},
-      {lbl:'Cost / qualified',val:inr(k.cost_per_qualified),d:'flat',dt:'total '+inr(k.spend_inr),cap:'speko spend',go:'billing'},
+      {lbl:'Cost / qualified',val:inr(k.cost_per_qualified),d:'flat',dt:'total '+inr(k.spend_inr),cap:'call spend',go:'billing'},
       {lbl:'Follow-ups due',val:k.tasks_due,d:k.tasks_due>0?'down':'flat',dt:k.stale_deals+' stale deals',cap:'needs attention',go:'tasks'},
     ];
     $('dashStats').innerHTML=cards.map(s=>`<div class="stat ${s.cls||''}">
@@ -762,7 +755,7 @@ function callRow(c){
   </div>`;
 }
 async function refreshAll(){
-  toast('Syncing with Speko…');
+  toast('Syncing calls…');
   try{await fetch('/api/sync',{method:'POST'})}catch(e){}
   setTimeout(()=>go(VIEW),4000);
 }
@@ -984,11 +977,11 @@ async function openCall(id){
       ${`<audio controls preload="none" src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`}
     </div>`;
   $('dbody').innerHTML=`
-    ${c.summary?`<div class="ana"><div class="ak">Speko call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
+    ${c.summary?`<div class="ana"><div class="ak">Call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
     ${intent!=='unknown'?`<div class="ana"><div class="ak">Intent <span class="src-tag">· detected by dashboard</span></div>
       <div class="av"><span class="pill ${INTENT_PILL[intent]}" style="font-size:13px">${INTENT_LABEL[intent]}</span>
       ${c.talk_ratio!=null?`<div class="small mt8">Lead talked ${Math.round(c.talk_ratio*100)}% of the call</div><div class="talkbar"><i style="width:${Math.round(c.talk_ratio*100)}%"></i></div>`:''}</div></div>`:''}
-    ${factRows?`<div class="ana"><div class="ak">Extracted facts <span class="src-tag">· from speko report</span></div><div class="factgrid">${factRows}</div></div>`:''}
+    ${factRows?`<div class="ana"><div class="ak">Extracted facts <span class="src-tag">· from call report</span></div><div class="factgrid">${factRows}</div></div>`:''}
     ${objs.length?`<div class="ana"><div class="ak">Objections raised <span class="src-tag">· detected by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap">${objs.map(o=>`<span class="pill p-amber">${esc(o)}</span>`).join('')}</div></div>`:''}
     ${qflags(c).length?`<div class="ana"><div class="ak">Call quality <span class="src-tag">· flagged by dashboard</span></div><div class="rowflex" style="flex-wrap:wrap;gap:4px">${qflags(c).map(x=>`<span class="pill p-amber">${QFLAG_LABEL[x]||x}</span>`).join('')}</div><div class="small mt8">Tap the transcript below to verify.</div></div>`:''}
     ${c.next_action?`<div class="ana"><div class="ak">Suggested next action <span class="src-tag">· detected by dashboard</span></div>
@@ -1249,7 +1242,7 @@ async function renderIntegrations(){
      <li><b>Subscribe the webhook</b> — in developers.facebook.com → your app → Webhooks, add the callback URL shown above with the verify token, then subscribe your Page to the <span class="mono">leadgen</span> field.</li>
      <li><b>Test it</b> — use Meta's lead-ads testing tool or submit a real test lead. It should appear under Leads within seconds, and Priya calls it instantly when auto-dial is on.</li>
    </ol></div></div>
-   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Smallest Atoms <span class="small">— alt voice provider</span></div><span id="smStat"></span></div>
+   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Smallest Atoms</div><span id="smStat"></span></div>
    <div class="cbody" id="smBody"><div class="sk" style="height:220px"></div></div></div>
    <div class="card"><div class="chead"><div class="ctitle">Auto-dial activity</div></div>
    <div class="cbody" id="metaActs"><div class="sk" style="height:80px"></div></div></div>`;
@@ -1322,7 +1315,7 @@ async function renderIntegrations(){
         <button class="btn primary" onclick="saveSmallest()">${ic('check',14)} Save</button>
         <button class="btn" onclick="testSmallest()">${ic('refresh',14)} Test connection</button>
       </div>
-      <div class="small" style="margin-top:8px">The key is stored in your dashboard's own database and used only to sync calls and place manual dials. Nothing rents numbers or places calls on its own. Manual dials from the Call button go through Speko unless you pick Smallest in the dialer.</div>`;
+      <div class="small" style="margin-top:8px">The key is stored in your dashboard's own database and used only to sync calls and place manual dials. Nothing rents numbers or places calls on its own. Calls go through Smallest automatically, with a silent backup provider if Smallest isn't configured.</div>`;
   }catch(e){$('smBody').innerHTML='<div class="small">Could not load Smallest settings.</div>'}
 }
 async function saveWa(){
@@ -1361,7 +1354,7 @@ async function saveMeta(){
   if(tok)body.page_token=tok;
   const sec=$('metaSec').value.trim();
   if(sec)body.app_secret=sec;
-  if(body.autodial&&!confirm('Turn on instant outbound? Every new Meta lead will be called immediately, about ₹6 per call from the Speko balance.'))return;
+  if(body.autodial&&!confirm('Turn on instant outbound? Every new Meta lead will be called immediately, billed at your provider\u2019s per-minute rate.'))return;
   try{
     await api(cq('/api/integrations/meta'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     toast('Meta integration saved');renderIntegrations();
@@ -1398,7 +1391,7 @@ async function renderBilling(){
   }
   // OPERATOR VIEW: provider wallet + cost cards, plus the client-bill card
   // so the operator sees exactly what the client will be charged.
-  pg.innerHTML=phead('Manage','Billing',`<span>Speko usage for ${esc(CO.name)}</span>`,
+  pg.innerHTML=phead('Manage','Billing',`<span>Call usage for ${esc(CO.name)}</span>`,
     `<button class="btn sm" onclick="refreshAll()">${ic('refresh',14)} Refresh</button>`)+
   `<div class="stats" id="bStats"><div class="stat"><div class="sk" style="height:118px"></div></div></div>
    <div class="grid2"><div class="card"><div class="chead"><div class="ctitle">Cost by provider</div></div><div id="bProv"></div></div>
@@ -1409,7 +1402,7 @@ async function renderBilling(){
   try{
     const [b,days,cb]=await Promise.all([api('/api/billing'),api(cq('/api/usage/daily')),api(cq('/api/billing/client')).catch(()=>null)]);
     $('bStats').innerHTML=[
-      ['Balance',inr(b.balance_inr),'flat',b.demo?'demo data':'live speko'],
+      ['Balance',inr(b.balance_inr),'flat',b.demo?'demo data':'live'],
       ['Total spend (all time)',inr(b.total_cost_inr),'flat',b.total_sessions+' sessions'],
       ['Talk time',b.total_minutes+' min','flat','voice usage'],
       ['Per call avg',b.total_sessions?inr(b.total_cost_inr/b.total_sessions):'—','flat','all-in cost'],
@@ -1442,9 +1435,8 @@ async function openDialer(preLead){
   const sel=$('dialLead');
   try{const ls=await api(cq('/api/leads'));sel.innerHTML='<option value="">— none —</option>'+ls.map(l=>`<option value="${l.id}">${esc(l.name||l.phone)} · ${esc(l.phone||'')}</option>`).join('');
     if(preLead)sel.value=String(preLead)}catch(e){}
-  // Smallest is primary, Speko is backup: pre-select Smallest only when the
-  // company has it fully configured (key + agent + caller ID), else Speko
-  try{const dp=$('dialProvider');if(dp){dp.value=(CO&&CO.has_smallest_api_key&&CO.smallest_agent_id&&CO.smallest_from_number)?'smallest':'speko';}}catch(e){}
+  // provider is a backend concern now: Smallest when configured, silent
+  // backup otherwise — no picker in the UI
   setTimeout(()=>$('dialNum').focus(),100);
 }
 $('dialLead')&&($('dialLead').onchange=e=>{const id=e.target.value;if(!id)return;const l=(window._leads||[]).find(x=>x.id==id);if(l)$('dialNum').value=l.phone});
@@ -1452,7 +1444,7 @@ async function doDial(){
   const num=$('dialNum').value.trim();if(num.replace(/\D/g,'').length<10){toast('Enter a valid phone number');return}
   $('dialGo').disabled=true;
   try{
-    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null,provider:$('dialProvider')?$('dialProvider').value:'smallest'})});
+    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null})});
     closeModal('dialModal');toast(r.message||'Calling…');
     setTimeout(()=>{if(VIEW==='calls'||VIEW==='dash')go(VIEW)},2500);
   }catch(e){toast('Call failed: '+e.message)}
