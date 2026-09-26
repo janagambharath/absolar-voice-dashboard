@@ -28,6 +28,7 @@ import hmac
 import json
 import math
 import os
+import re
 import struct
 import time
 import uuid
@@ -1310,7 +1311,92 @@ async def task_done(task_id: str, req: Request):
     return {"ok": True, "done": bool(done)}
 
 # -------------------------------------------------- dial & calls ------
-def dial_now(company_id, phone, lead_id=None, name=""):
+# Per-call personalization: production Meta leads get their OWN name and
+# details in the greeting + LEAD block, via Speko's per-call firstMessage
+# and systemPrompt overrides. The agent's stored prompt is only a fallback.
+SOLAR_PROMPT_TEMPLATE = """LANGUAGE (ABSOLUTE RULE — ఇది కింద ఉన్న అన్నిటికంటే ముఖ్యం):
+- నువ్వు మాట్లాడే ప్రతి పదం Teluguలోనే ఉండాలి. Englishలో ఒక్క పదం కూడా పలకవద్దు — ఒక్క "sorry" కూడా వద్దు.
+- అర్థం కాకపోతే, వినపడకపోతే, లేదా ఏమైనా doubt వస్తే — ఈ ఒక్క line మాత్రమే వాడు, అక్షరం పొల్లుపోకుండా: "సారీ అండి, కొంచెం మళ్ళీ చెప్తారా?"
+- BANNED — ఇవి ఎప్పుడూ, ఏ పరిస్థితిలోనూ వాడవద్దు: "Sorry, I didn't quite catch that", "could you say that again", "could you repeat that", "I didn't understand", "please repeat", లేదా ఏ English sentence అయినా.
+
+నువ్వు Priya — 28 ఏళ్ల అమ్మాయి, Dilsukhnagarలో ఉంటావు, Sri Surya Solarలో 2 years నుంచి customersతో మాట్లాడుతున్నావు. Enquiry ఇచ్చిన వాళ్లకి call చేసి, details confirm చేసి, qualify అయితే "మా team contact చేస్తారు" అని చెప్పి close చేస్తావు. తక్కువ మాట్లాడు — అవసరమైనది మాత్రమే.
+
+LEAD (నీకు ముందే తెలుసు — మళ్లీ అడగవద్దు): {lead_block}
+
+STYLE:
+- Telangana Telugu: చేస్తా, అయితది, ఎట్లా, ఏంటి.
+- Max 1-2 చిన్న sentences per turn. Yapping వద్దు.
+- No "ha, huuh, umm" fillers — confident, direct.
+- Language: పైన LANGUAGE rule చూడు — Telugu మాత్రమే, exceptions లేవు.
+- DELIVERY: మనిషిలా మాట్లాడు — sentenceల మధ్య soft breath pause తీసుకో, unhurried, warm. Clipped/robotic వద్దు.
+
+FLOW:
+1. "{greeting_line}"
+   Wrong person: "సరే, {lead_name} ఎప్పుడు దొరుకుతారో చెప్తారా?" → end.
+2. "నేను Priyaని, Sri Surya Solar నుంచి. మీ rooftop solar enquiry గురించి — terrace మీద panelsకి space ఉందా?"
+   (LEAD blockలో property type చూసి, flat/apartment అయితే terrace access ఉందా అని అడుగు.)
+   లేదు: → NOT QUALIFIED.
+3. "నెలకి current bill ఎంత వస్తుంది?"
+4. "మీ enquiry qualified అయింది. మా team site survey కోసం contact చేస్తారు. సరే {lead_name}." → end.
+
+NOT QUALIFIED: "మీ requirement అర్థమైంది — కానీ rooftop solar మీకు suit అవ్వదు. Enquiry ఇక్కడితో close చేస్తున్నా." → end.
+
+QUESTIONS:
+- Price: "System size బట్టి మారతది. Site survey తర్వాత exact quotation ఇస్తాం."
+- Subsidy: "Government subsidy options ఉన్నాయి — team details చెప్తారు."
+- Warranty: "Panelsకి 25 years performance warranty వస్తది."
+- AIనా: "అవును, నేను Sri Surya Solar AI assistantని. Humanతో మాట్లాడాలంటే arrange చేస్తా."
+- తెలియనిది: "అది... అంటే ఒక్కసారి check చేసి చెప్తా."
+
+SITUATIONS:
+- Busy: "అయ్యో, పర్లేదు. మరి ఎప్పుడు చేస్తే కుదురుతది?"
+- WhatsApp: "సరే, details WhatsAppలో పంపిస్తా." → ఆపు.
+- "ఆలోచించి చెప్తా": "సరే. మీకు వీలైనప్పుడు చెప్పండి."
+- "Interest లేదు": "సరే, పర్లేదు." → end.
+
+GUARDRAILS: Price, subsidy, company name — verified info మాత్రమే. Savings guarantee వద్దు. "No" = full stop.
+"""
+
+
+def personalize_solar_call(lead):
+    """Build per-call (first_message, system_prompt) from a lead dict.
+
+    lead keys used: name, city, property_type, monthly_bill_inr, source.
+    Missing fields are simply omitted — never shown as blank/unknown.
+    """
+    lead = lead or {}
+    name = (lead.get("name") or "").strip()
+    disp_name = name or "అండి"
+    if name:
+        greeting = f"హలో... ఆ, {name} మాట్లాడుతున్నారా?"
+    else:
+        greeting = "హలో... నమస్తే అండి?"
+    facts = []
+    if name:
+        facts.append(name)
+    city = (lead.get("city") or "").strip()
+    if city:
+        facts.append(city)
+    ptype = (lead.get("property_type") or "").strip()
+    if ptype:
+        facts.append(ptype)
+    bill = lead.get("monthly_bill_inr") or 0
+    try:
+        bill = float(bill)
+    except (TypeError, ValueError):
+        bill = 0
+    if bill > 0:
+        facts.append(f"నెలకి ₹{int(bill):,} current bill")
+    src = (lead.get("source") or "").strip()
+    if src and src not in ("manual",):
+        facts.append({"facebook": "Facebook ad"}.get(src, src))
+    lead_block = " | ".join(facts) if facts else "details తెలియవు — politely అడిగి తెలుసుకో"
+    prompt = SOLAR_PROMPT_TEMPLATE.format(
+        lead_block=lead_block, greeting_line=greeting, lead_name=disp_name)
+    return greeting, prompt
+
+
+def dial_now(company_id, phone, lead_id=None, name="", lead=None):
     """Place a manual outbound call via Speko. Returns (ok, message)."""
     comp = get_company(company_id) or {}
     agent_id = comp.get("speko_agent_id") or ""
@@ -1321,7 +1407,28 @@ def dial_now(company_id, phone, lead_id=None, name=""):
     if not SPEKO_API_KEY:
         return False, "Speko API key not configured"
     to = phone if phone.startswith("+") else f"+91{digits(phone)[-10:]}"
+    # per-call personalization: greet with the LEAD's name + details
+    lead_row = dict(lead) if lead else {}
+    if lead_id and not lead_row.get("name"):
+        try:
+            c2 = db()
+            r = c2.execute(
+                f"SELECT name, city, property_type, monthly_bill_inr, source"
+                f" FROM leads WHERE id={Q}", (lead_id,)).fetchone()
+            c2.close()
+            if r:
+                lead_row = {"name": r["name"] or name,
+                            "city": r["city"] or "",
+                            "property_type": r["property_type"] or "",
+                            "monthly_bill_inr": r["monthly_bill_inr"] or 0,
+                            "source": r["source"] or ""}
+        except Exception:
+            pass
+    if not lead_row.get("name"):
+        lead_row["name"] = name
+    greeting, prompt = personalize_solar_call(lead_row)
     payload = {"to": to, "agentId": agent_id,
+               "firstMessage": greeting, "systemPrompt": prompt,
                "metadata": {"lead_id": lead_id, "name": name,
                             "source": "dashboard_manual"}}
     if comp.get("caller_id"):
@@ -1357,10 +1464,12 @@ async def manual_dial(req: Request):
     lead_id = body.get("lead_id")
     phone = (body.get("to") or "").strip()
     name = ""
+    lead_ctx = None
     if lead_id:
         con = db()
-        row = con.execute(f"SELECT phone, name, dnc, company_id FROM leads"
-                          f" WHERE id={Q}", (lead_id,)).fetchone()
+        row = con.execute(f"SELECT phone, name, dnc, company_id, city,"
+                          f" property_type, monthly_bill_inr, source"
+                          f" FROM leads WHERE id={Q}", (lead_id,)).fetchone()
         con.close()
         if not row:
             raise HTTPException(404, "lead not found")
@@ -1368,9 +1477,13 @@ async def manual_dial(req: Request):
             raise HTTPException(403, "lead is on Do-Not-Call")
         phone, name = row["phone"], row["name"]
         cid = row["company_id"] or cid
+        lead_ctx = {"name": row["name"] or "", "city": row["city"] or "",
+                    "property_type": row["property_type"] or "",
+                    "monthly_bill_inr": row["monthly_bill_inr"] or 0,
+                    "source": row["source"] or ""}
     if len(digits(phone)) < 10:
         raise HTTPException(400, "valid phone required")
-    ok, msg = dial_now(cid, phone, lead_id, name)
+    ok, msg = dial_now(cid, phone, lead_id, name, lead=lead_ctx)
     if not ok:
         raise HTTPException(502, msg)
     return {"ok": True, "message": msg}
@@ -1733,14 +1846,16 @@ def verify_meta_signature(req: Request, body: bytes, app_secret: str) -> bool:
 def enrich_meta_lead(leadgen_id: str, page_token: str):
     """Fetch a Meta lead ad's field_data via Graph API.
 
-    Returns (name, phone, email). Empty strings on any failure —
+    Returns (name, phone, email, fields). fields is the raw {field_name:
+    value} dict so custom form fields (city, property type, monthly bill…)
+    can be mapped to lead columns. Empty strings / {} on any failure —
     the lead is still created, just flagged needs_enrichment."""
     try:
         with httpx.Client(timeout=15) as c:
             r = c.get(f"https://graph.facebook.com/v21.0/{leadgen_id}",
                       params={"access_token": page_token})
         if r.status_code != 200:
-            return "", "", ""
+            return "", "", "", {}
         fields = {f.get("name"): (f.get("values") or [""])[0]
                   for f in (r.json().get("field_data") or [])}
         name = (fields.get("full_name") or "").strip()
@@ -1749,9 +1864,41 @@ def enrich_meta_lead(leadgen_id: str, page_token: str):
                             (fields.get("first_name", ""),
                              fields.get("last_name", "")) if x).strip()
         return name, (fields.get("phone_number") or "").strip(), \
-            (fields.get("email") or "").strip()
+            (fields.get("email") or "").strip(), fields
     except Exception:
-        return "", "", ""
+        return "", "", "", {}
+
+
+def map_meta_fields(fields):
+    """Map Meta lead form field_data to lead columns.
+
+    Meta field names are advertiser-defined, so match flexibly on
+    lowercased keywords (word-boundary matched — "city" must not match
+    "electricity"). Returns dict of {column: value}."""
+    cols = {}
+    for key, val in (fields or {}).items():
+        k = re.sub(r"[^a-z0-9]+", " ", str(key).lower()).strip()
+        v = str(val or "").strip()
+        if not v:
+            continue
+        has = lambda *words: any(
+            re.search(rf"\b{w}\b", k) for w in words)
+        if has("bill") or (has("monthly") and has("electricity")):
+            try:
+                cols.setdefault("monthly_bill_inr",
+                                float("".join(ch for ch in v
+                                              if ch.isdigit() or ch == ".")))
+            except ValueError:
+                pass
+        elif has("property", "hometype", "housetype", "home", "house"):
+            cols.setdefault("property_type", v)
+        elif has("city", "location", "area", "town", "village"):
+            cols.setdefault("city", v)
+        elif has("roof") and has("type"):
+            cols.setdefault("roof_type", v)
+        elif has("roof"):
+            cols.setdefault("roof_ownership", v)
+    return cols
 
 
 def auto_dials_today(company_id: str) -> int:
@@ -1800,9 +1947,9 @@ async def fb_lead(req: Request):
                     if dup:
                         ids.append(dup["id"])
                         continue
-                name, phone, email = "", "", ""
+                name, phone, email, meta_fields = "", "", "", {}
                 if lgid and comp.get("meta_page_token"):
-                    name, phone, email = enrich_meta_lead(
+                    name, phone, email, meta_fields = enrich_meta_lead(
                         lgid, comp["meta_page_token"])
                 try:
                     lid = insert_lead(
@@ -1820,6 +1967,15 @@ async def fb_lead(req: Request):
                             f" email={Q}, last_activity_at={Q},"
                             f" meta_leadgen_id={Q} WHERE id={Q}",
                             (cid, email, now, lgid, lid))
+                # store Meta custom fields (city, property type, bill…)
+                # so the call can greet with the lead's own details
+                mapped = map_meta_fields(meta_fields)
+                lead_ctx = {"name": name, "source": "facebook"}
+                if mapped:
+                    sets = ", ".join(f"{c}={Q}" for c in mapped)
+                    con.execute(f"UPDATE leads SET {sets} WHERE id={Q}",
+                                (*mapped.values(), lid))
+                    lead_ctx.update(mapped)
                 ids.append(lid)
                 log_activity_inline(con, cid, lid, "lead",
                                     "Lead from Facebook",
@@ -1840,7 +1996,8 @@ async def fb_lead(req: Request):
                                      "Auto-dial skipped",
                                      f"daily cap ({cap}) reached")
                     else:
-                        ok, msg = dial_now(cid, phone, lid, name)
+                        ok, msg = dial_now(cid, phone, lid, name,
+                                           lead=lead_ctx)
                         log_activity(cid, lid, "auto_dial",
                                      f"Auto-dial {'placed' if ok else 'failed'}",
                                      msg)

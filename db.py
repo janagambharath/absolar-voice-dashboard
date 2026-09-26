@@ -265,6 +265,7 @@ _LEAD_COLS = [
     ("discom", "TEXT DEFAULT ''"),
     ("notes_count", "INTEGER DEFAULT 0"),
     ("email", "TEXT DEFAULT ''"),
+    ("city", "TEXT DEFAULT ''"),
 ]
 
 _CALL_COLS = [
