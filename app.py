@@ -8,15 +8,15 @@ What it does:
     scheduled -> Survey done -> Proposal sent -> Negotiation -> Won,
     plus Nurture / Lost), dispositions, follow-up tasks, notes,
     per-lead activity timeline, lead score.
-  - Call analysis: Speko's post-call report (summary / outcome /
+  - Call analysis: post-call report (summary / outcome /
     structured facts / cost) pulled during sync, plus derived intent,
     objection signals, talk ratio and a suggested next action with
     one-tap apply.
-  - Manual dial: POST /api/dial triggers POST /v1/sessions/phone on the
+  - Manual dial: POST /api/dial places a Smallest outbound call on the
     company's agent + caller ID, with DNC guard and activity logging.
-  - Billing: Speko balance/credits + provider cost split (cached).
-  - Instant page loads: everything served from the local DB; Speko syncs
-    in the background (new sessions only, 10-way parallel).
+  - Billing: provider cost split (cached).
+  - Instant page loads: everything served from the local DB; Smallest
+    syncs in the background (new conversations only).
 
 Env: SPEKO_API_KEY, SPEKO_AGENT_ID, DEMO_MODE, AUTO_DIAL,
      FB_VERIFY_TOKEN, DASH_USER / DASH_PASS, DB_PATH / DATABASE_URL.
@@ -56,7 +56,7 @@ BASE_DIR = Path(__file__).parent
 SPEKO_API_KEY = os.environ.get("SPEKO_API_KEY", "")
 SPEKO_AGENT_ID = os.environ.get("SPEKO_AGENT_ID", "")
 SPEKO_BASE = "https://api.speko.dev"
-DEMO_MODE = os.environ.get("DEMO_MODE", "1" if not SPEKO_API_KEY else "0") == "1"
+DEMO_MODE = os.environ.get("DEMO_MODE", "0") == "1"
 AUTO_DIAL = os.environ.get("AUTO_DIAL", "0") == "1"
 FB_VERIFY_TOKEN = os.environ.get("FB_VERIFY_TOKEN", "absolar-dev")
 DASH_USER = os.environ.get("DASH_USER", "")
@@ -73,8 +73,7 @@ app = FastAPI(title="REvorax Voice-AI CRM")
 
 @asynccontextmanager
 async def lifespan(app):
-    if not DEMO_MODE and SPEKO_API_KEY:
-        asyncio.create_task(refresh_calls_from_speko())
+    if not DEMO_MODE:
         asyncio.create_task(refresh_calls_from_smallest())
         asyncio.create_task(refresh_billing_cache())
     # a restart must never leave a campaign stuck in "running"
@@ -600,7 +599,7 @@ async def _enrich_one(client, sem, s, company_id):
         else 0,
         "usage": json.dumps(det.get("usage") or []),
         "analysis": analysis,
-        # stamped by dial_now(): only dashboard-placed outbound calls
+        # stamped by the dial path: only dashboard-placed outbound calls
         # (manual + Meta auto-dial) qualify for WhatsApp follow-up
         "dial_source": md.get("source") or "",
         "campaign_id": md.get("campaign_id") or "",
@@ -733,66 +732,6 @@ async def _persist_synced_call(con, sid, p, fallback_company, agent_company,
     return True
 
 
-async def refresh_calls_from_speko():
-    """Background sync: new sessions only, enriched in parallel."""
-    global sync_running
-    if DEMO_MODE or not SPEKO_API_KEY or sync_running:
-        return {"skipped": True}
-    sync_running = True
-    try:
-        comp = get_company(DEFAULT_COMPANY) or {}
-        fallback_company = comp.get("id") or DEFAULT_COMPANY
-        async with speko_async() as c:
-            r = await c.get("/v1/sessions", params={"limit": 100})
-            if r.status_code != 200:
-                return {"error": f"speko {r.status_code}"}
-            sessions = r.json().get("entries") or []
-        con = db()
-        known = {row["id"] for row in
-                 con.execute("SELECT id FROM calls").fetchall()}
-        # agent id -> company: a call belongs to whichever company owns
-        # the voice agent that placed it (never the default company).
-        # Covers both providers: Speko agent ids and Smallest agent ids.
-        agent_company = {}
-        for c in con.execute(
-                "SELECT id, speko_agent_id, smallest_agent_id"
-                " FROM companies").fetchall():
-            if c["speko_agent_id"]:
-                agent_company[c["speko_agent_id"]] = c["id"]
-            if c["smallest_agent_id"]:
-                agent_company[c["smallest_agent_id"]] = c["id"]
-        con.close()
-        skipped = _skip_ids()
-        todo = [s for s in sessions
-                if isinstance(s, dict) and str(s.get("id") or "")
-                and str(s["id"]) not in known and str(s["id"]) not in skipped]
-        sem = asyncio.Semaphore(SYNC_CONCURRENCY)
-        async with speko_async() as c:
-            results = await asyncio.gather(
-                *[_enrich_one(c, sem, s, fallback_company) for s in todo])
-        new, skip = 0, []
-        con = db()
-        try:
-            for sid, kind, p in results:
-                if kind == "skip":
-                    skip.append(sid)
-                    continue
-                if kind != "ok" or not p:
-                    continue
-                if await _persist_synced_call(con, sid, p, fallback_company,
-                                              agent_company, "speko"):
-                    new += 1
-            con.commit()
-        finally:
-            con.close()
-        _add_skip_ids(skip)
-        kv_set("last_sync", now_iso())
-        kv_set("last_sync_new", str(new))
-        return {"new": new, "skipped_evals": len(skip)}
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
-    finally:
-        sync_running = False
 
 
 def _smallest_summary(outcome, dur, analysis):
@@ -821,9 +760,9 @@ def _smallest_summary(outcome, dur, analysis):
 async def refresh_calls_from_smallest():
     """Background sync: new Smallest conversations only.
 
-    Mirrors refresh_calls_from_speko(): per-company agent, new ids only,
-    same enrichment + analysis + bookkeeping via _persist_synced_call,
-    stored with provider='smallest'. Read-only against the Smallest API.
+    Per-company agent, new ids only, same enrichment + analysis +
+    bookkeeping via _persist_synced_call, stored with
+    provider='smallest'. Read-only against the Smallest API.
     """
     if DEMO_MODE:
         return {"skipped": True}
@@ -2365,101 +2304,38 @@ async def dial_now_smallest(company_id, phone, lead_id=None, name="",
     return True, f"calling {to}…"
 
 
-def dial_now(company_id, phone, lead_id=None, name="", lead=None,
-             campaign_id=None, campaign_kind=None, campaign_params=None):
-    """Place a manual outbound call via Speko. Returns (ok, message)."""
-    comp = get_company(company_id) or {}
-    agent_id = comp.get("speko_agent_id") or ""
-    if DEMO_MODE:
-        return True, f"(demo) call queued to {phone}"
-    if not agent_id:
-        return False, "no Speko agent configured for this company"
-    if not SPEKO_API_KEY:
-        return False, "Speko API key not configured"
-    to = phone if phone.startswith("+") else f"+91{digits(phone)[-10:]}"
-    # per-call personalization: greet with the LEAD's name + details
-    lead_row = dict(lead) if lead else {}
-    if lead_id and not lead_row.get("name"):
-        try:
-            c2 = db()
-            r = c2.execute(
-                f"SELECT name, city, property_type, monthly_bill_inr, source"
-                f" FROM leads WHERE id={Q}", (lead_id,)).fetchone()
-            c2.close()
-            if r:
-                lead_row = {"name": r["name"] or name,
-                            "city": r["city"] or "",
-                            "property_type": r["property_type"] or "",
-                            "monthly_bill_inr": r["monthly_bill_inr"] or 0,
-                            "source": r["source"] or ""}
-        except Exception:
-            pass
-    if not lead_row.get("name"):
-        lead_row["name"] = name
-    greeting, prompt = personalize_solar_call(
-        lead_row, campaign_kind=campaign_kind,
-        campaign_params=campaign_params)
-    payload = {"to": to, "agentId": agent_id,
-               "firstMessage": greeting, "systemPrompt": prompt,
-               "metadata": {"lead_id": lead_id, "name": name,
-                            "source": "dashboard_manual",
-                            "campaign_id": campaign_id or "",
-                            "campaign_kind": campaign_kind or ""}}
-    if comp.get("caller_id"):
-        payload["from"] = comp["caller_id"]
-    try:
-        with speko() as c:
-            r = c.post("/v1/sessions/phone", json=payload)
-        if r.status_code not in (200, 201, 202):
-            return False, f"speko {r.status_code}: {r.text[:200]}"
-        sid = (r.json() or {}).get("sessionId") or f"manual-{uuid.uuid4().hex[:8]}"
-        con = db()
-        insert_call_ignore(con, id=sid, lead_id=lead_id, to_number=to,
-                           status="dialing", started_at=now_iso(),
-                           duration_seconds=0, demo=0)
-        con.execute(f"UPDATE calls SET company_id={Q} WHERE id={Q}",
-                    (company_id, sid))
-        con.commit()
-        con.close()
-        if lead_id:
-            log_activity(company_id, lead_id, "call",
-                         f"Manual call placed to {to}", "")
-        return True, f"calling {to}…"
-    except Exception as e:
-        return False, f"dial failed: {e}"
 
 
 def dial_primary(company_id, phone, lead_id=None, name="", lead=None,
                  campaign_id=None, campaign_kind=None, campaign_params=None):
-    """Smallest primary, Speko backup. Uses Smallest when the company has it
-    fully configured (key + agent + caller ID), otherwise Speko.
-    Returns (ok, message). Sync — safe for webhook/background paths."""
+    """Smallest-only dial. Returns (ok, message). Sync — safe for
+    webhook/background paths. Names the missing piece when the company
+    is not dial-ready (API key + agent + caller number required)."""
     comp = get_company(company_id) or {}
-    sm_ready = bool(comp.get("smallest_api_key")
-                    and comp.get("smallest_agent_id")
-                    and comp.get("smallest_from_number"))
-    if sm_ready:
-        try:
-            return asyncio.run(
-                dial_now_smallest(company_id, phone, lead_id, name, lead=lead))
-        except Exception as e:
-            return False, f"smallest dial failed: {e}"
-    return dial_now(company_id, phone, lead_id, name, lead=lead,
-                    campaign_id=campaign_id, campaign_kind=campaign_kind,
-                    campaign_params=campaign_params)
+    missing = [label for label, key in
+               (("API key", "smallest_api_key"),
+                ("agent", "smallest_agent_id"),
+                ("caller number", "smallest_from_number"))
+               if not comp.get(key)]
+    if missing:
+        return False, ("Smallest not ready to dial (missing: "
+                       + ", ".join(missing) + ")")
+    try:
+        return asyncio.run(
+            dial_now_smallest(company_id, phone, lead_id, name, lead=lead))
+    except Exception as e:
+        return False, f"smallest dial failed: {e}"
 
 
 @app.post("/api/dial")
 async def manual_dial(req: Request):
     """Manual call trigger from the dashboard (per-lead Call button or
-    the dialer). Guards DNC; every dial is logged. ``provider`` is optional:
-    when omitted the backend picks Smallest if the company has it fully
-    configured (key + agent + caller ID), else the silent Speko backup."""
+    the dialer). Guards DNC; every dial is logged. Smallest is the only
+    provider; the company needs its API key, agent and caller number."""
     body = await req.json()
     cid = _cid(req, body.get("company", ""))
     lead_id = body.get("lead_id")
     phone = (body.get("to") or "").strip()
-    provider = str(body.get("provider") or "").strip().lower()
     name = ""
     lead_ctx = None
     if lead_id:
@@ -2480,22 +2356,19 @@ async def manual_dial(req: Request):
                     "source": row["source"] or ""}
     if len(digits(phone)) < 10:
         raise HTTPException(400, "valid phone required")
-    # Provider is a backend concern: explicit ``provider`` is honored when
-    # given (API/testing), otherwise Smallest when the company has it fully
-    # configured, else the silent Speko backup.
-    if not provider:
-        comp = get_company(cid) or {}
-        sm_ready = bool(comp.get("smallest_api_key")
-                        and comp.get("smallest_agent_id")
-                        and comp.get("smallest_from_number"))
-        provider = "smallest" if sm_ready else "speko"
-    if provider == "smallest":
-        ok, msg = await dial_now_smallest(cid, phone, lead_id, name,
-                                          lead_ctx)
-    elif provider == "speko":
-        ok, msg = dial_now(cid, phone, lead_id, name, lead=lead_ctx)
-    else:
-        raise HTTPException(400, "unknown provider")
+    # Smallest is the only provider. No fallback: a company that is not
+    # dial-ready fails here naming the missing piece.
+    comp = get_company(cid) or {}
+    missing = [label for label, key in
+               (("API key", "smallest_api_key"),
+                ("agent", "smallest_agent_id"),
+                ("caller number", "smallest_from_number"))
+               if not comp.get(key)]
+    if missing:
+        raise HTTPException(
+            502, "Smallest not ready to dial (missing: "
+            + ", ".join(missing) + ")")
+    ok, msg = await dial_now_smallest(cid, phone, lead_id, name, lead_ctx)
     if not ok:
         raise HTTPException(502, msg)
     return {"ok": True, "message": msg}
@@ -2904,11 +2777,10 @@ def usage_daily(req: Request):
 
 @app.post("/api/sync")
 async def trigger_sync():
-    if DEMO_MODE or not SPEKO_API_KEY:
+    if DEMO_MODE:
         return {"started": False, "demo": True}
     if sync_running:
         return {"started": False, "running": True}
-    asyncio.create_task(refresh_calls_from_speko())
     asyncio.create_task(refresh_calls_from_smallest())
     asyncio.create_task(refresh_billing_cache(force=True))
     return {"started": True}
