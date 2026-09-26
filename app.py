@@ -1334,6 +1334,10 @@ def companies(req: Request):
         out = [c for c in out if c["id"] == req.state.company_id]
         for c in out:
             c["hide_integrations"] = 1
+            # client logins never see provider agent IDs — the operator
+            # controls every ID from the /admin Companies panel
+            c.pop("speko_agent_id", None)
+            c.pop("smallest_agent_id", None)
     # secrets (provider API keys/tokens) never leave the server
     return out
 
@@ -1379,6 +1383,13 @@ def admin_companies(req: Request):
             "smallest_ready": bool(c.get("smallest_api_key")
                                    and c.get("smallest_agent_id")
                                    and c.get("smallest_from_number")),
+            # operator-only wiring: every ID the operator controls
+            "speko_agent_id": c.get("speko_agent_id") or "",
+            "smallest_agent_id": c.get("smallest_agent_id") or "",
+            "smallest_from_number": c.get("smallest_from_number") or "",
+            "caller_id": c.get("caller_id") or "",
+            "rate_per_min": c.get("rate_per_min") or 15,
+            "has_smallest_api_key": bool(c.get("smallest_api_key")),
             "leads": n_leads, "calls": n_calls,
         })
     con.close()
@@ -1422,7 +1433,11 @@ async def admin_create_company(req: Request):
 
 @app.patch("/api/admin/companies/{cid}")
 async def admin_update_company(cid: str, req: Request):
-    """Operator-only: rename, change login_id, or flip client view."""
+    """Operator-only: rename, change login_id, flip client view, or set
+    any provider wiring — Speko/Smallest agent IDs, Smallest API key,
+    from-number, caller ID, billing rate. The /admin Companies panel is
+    the single place the operator controls every ID; client logins can
+    never read or change these."""
     _require_operator(req)
     body = await req.json()
     con = db()
@@ -1448,6 +1463,26 @@ async def admin_update_company(cid: str, req: Request):
     if "client_view" in body:
         sets.append(f"hide_integrations={Q}")
         vals.append(1 if body["client_view"] else 0)
+    for col in ("speko_agent_id", "smallest_agent_id",
+                "smallest_from_number", "caller_id"):
+        if col in body and isinstance(body[col], str):
+            sets.append(f"{col}={Q}")
+            vals.append(body[col].strip())
+    if body.get("smallest_api_key"):
+        # blank = keep the stored key; only a non-empty value overwrites
+        sets.append(f"smallest_api_key={Q}")
+        vals.append(str(body["smallest_api_key"]).strip())
+    if "rate_per_min" in body:
+        try:
+            rate = float(body["rate_per_min"])
+        except (TypeError, ValueError):
+            con.close()
+            raise HTTPException(400, "rate_per_min must be a number")
+        if rate < 0 or rate > 10000:
+            con.close()
+            raise HTTPException(400, "rate_per_min out of range")
+        sets.append(f"rate_per_min={Q}")
+        vals.append(rate)
     if not sets:
         con.close()
         raise HTTPException(400, "nothing to update")
@@ -2587,6 +2622,12 @@ async def agent(req: Request):
         # the dialer's "From" line needs the real phone number, not just
         # the agent's display name
         info["caller_id"] = (comp or {}).get("caller_id") or ""
+        if getattr(req.state, "role", "") == "company":
+            # client view: agent name + language + caller number only —
+            # no voice IDs, no provider stack, nothing technical
+            info = {"name": info.get("name"),
+                    "language": info.get("language"),
+                    "caller_id": info.get("caller_id")}
         return info
     raise HTTPException(502, "agent info unavailable")
 
@@ -2631,6 +2672,7 @@ def _agent_config_from_speko(a):
 @app.get("/api/agent/config")
 async def agent_config(req: Request):
     cid = _cid(req)
+    _assert_integrations_visible(req, cid)
     co = get_company(cid)
     if DEMO_MODE or not co.get("speko_agent_id"):
         return DEMO_AGENT_CONFIG
@@ -2644,6 +2686,7 @@ async def agent_config(req: Request):
 @app.patch("/api/agent/config")
 async def agent_config_update(req: Request):
     cid = _cid(req)
+    _assert_integrations_visible(req, cid)
     co = get_company(cid)
     if DEMO_MODE:
         raise HTTPException(400, "agent control is disabled in demo mode")
