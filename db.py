@@ -317,6 +317,10 @@ _COMPANY_COLS = [
     ("smallest_api_key", "TEXT DEFAULT ''"),
     ("smallest_agent_id", "TEXT DEFAULT ''"),
     ("smallest_from_number", "TEXT DEFAULT ''"),
+    # client login: per-company dashboard credentials (PBKDF2 hash, never
+    # the plaintext). Empty = no client login for that company.
+    ("login_id", "TEXT DEFAULT ''"),
+    ("password_hash", "TEXT DEFAULT ''"),
 ]
 
 
