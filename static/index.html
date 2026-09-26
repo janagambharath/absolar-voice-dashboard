@@ -488,8 +488,8 @@ ol.steps b{color:var(--ink);font-weight:600}
       <select class="ctl" id="dialLead" style="width:100%"><option value="">— none —</option></select></div>
     <div class="frow"><label class="fld">Call provider</label>
       <select class="ctl" id="dialProvider" style="width:100%">
-        <option value="speko">Speko — default</option>
-        <option value="smallest">Smallest Atoms — needs agent + caller ID saved in Integrations</option>
+        <option value="smallest">Smallest Atoms — primary</option>
+        <option value="speko">Speko — backup</option>
       </select></div>
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('dialModal')">Cancel</button>
@@ -1442,6 +1442,9 @@ async function openDialer(preLead){
   const sel=$('dialLead');
   try{const ls=await api(cq('/api/leads'));sel.innerHTML='<option value="">— none —</option>'+ls.map(l=>`<option value="${l.id}">${esc(l.name||l.phone)} · ${esc(l.phone||'')}</option>`).join('');
     if(preLead)sel.value=String(preLead)}catch(e){}
+  // Smallest is primary, Speko is backup: pre-select Smallest only when the
+  // company has it fully configured (key + agent + caller ID), else Speko
+  try{const dp=$('dialProvider');if(dp){dp.value=(CO&&CO.has_smallest_api_key&&CO.smallest_agent_id&&CO.smallest_from_number)?'smallest':'speko';}}catch(e){}
   setTimeout(()=>$('dialNum').focus(),100);
 }
 $('dialLead')&&($('dialLead').onchange=e=>{const id=e.target.value;if(!id)return;const l=(window._leads||[]).find(x=>x.id==id);if(l)$('dialNum').value=l.phone});
@@ -1449,7 +1452,7 @@ async function doDial(){
   const num=$('dialNum').value.trim();if(num.replace(/\D/g,'').length<10){toast('Enter a valid phone number');return}
   $('dialGo').disabled=true;
   try{
-    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null,provider:$('dialProvider')?$('dialProvider').value:'speko'})});
+    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null,provider:$('dialProvider')?$('dialProvider').value:'smallest'})});
     closeModal('dialModal');toast(r.message||'Calling…');
     setTimeout(()=>{if(VIEW==='calls'||VIEW==='dash')go(VIEW)},2500);
   }catch(e){toast('Call failed: '+e.message)}
