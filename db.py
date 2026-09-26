@@ -108,6 +108,8 @@ _V3_COLS = [
     ("companies", "wa_template", "TEXT DEFAULT ''"),
     ("companies", "wa_enabled", "INTEGER DEFAULT 0"),
     ("calls", "wa_sent", "INTEGER DEFAULT 0"),
+    ("calls", "campaign_id", "TEXT DEFAULT ''"),
+    ("calls", "quality_flags", "TEXT DEFAULT '[]'"),
 ]
 
 
@@ -146,6 +148,19 @@ def init_db():
     con.execute(_TASKS_DDL)
     con.execute(_NOTES_DDL)
     con.execute(_ACTIVITIES_DDL)
+    con.execute("""CREATE TABLE IF NOT EXISTS campaigns (
+        id TEXT PRIMARY KEY, company_id TEXT DEFAULT '',
+        name TEXT DEFAULT '', kind TEXT DEFAULT 'revival',
+        status TEXT DEFAULT 'draft', params_json TEXT DEFAULT '{}',
+        total INTEGER DEFAULT 0, done_count INTEGER DEFAULT 0,
+        interested_count INTEGER DEFAULT 0, created_at TEXT NOT NULL
+    )""")
+    con.execute("""CREATE TABLE IF NOT EXISTS campaign_leads (
+        campaign_id TEXT DEFAULT '', lead_id INTEGER,
+        status TEXT DEFAULT 'queued', params_json TEXT DEFAULT '{}',
+        called_at TEXT DEFAULT '',
+        PRIMARY KEY (campaign_id, lead_id)
+    )""")
     # migrate: older DBs lack usage_json on calls (IF NOT EXISTS on PG:
     # a duplicate-column error would abort the whole psycopg transaction
     # and silently skip every v3 column migration after it)

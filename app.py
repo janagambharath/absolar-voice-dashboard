@@ -23,6 +23,7 @@ Env: SPEKO_API_KEY, SPEKO_AGENT_ID, DEMO_MODE, AUTO_DIAL,
 """
 import asyncio
 import base64
+import csv
 import hashlib
 import hmac
 import json
@@ -45,7 +46,7 @@ from fastapi.responses import (
 )
 
 from db import (db, init_db, insert_lead, insert_call_ignore, kv_get, kv_set,
-                Q, seed_company, backfill_company)
+                Q, seed_company, backfill_company, USE_PG)
 
 BASE_DIR = Path(__file__).parent
 SPEKO_API_KEY = os.environ.get("SPEKO_API_KEY", "")
@@ -71,6 +72,15 @@ async def lifespan(app):
     if not DEMO_MODE and SPEKO_API_KEY:
         asyncio.create_task(refresh_calls_from_speko())
         asyncio.create_task(refresh_billing_cache())
+    # a restart must never leave a campaign stuck in "running"
+    try:
+        con = db()
+        con.execute("UPDATE campaigns SET status='paused'"
+                    " WHERE status='running'")
+        con.commit()
+        con.close()
+    except Exception:
+        pass
     yield
 
 
@@ -497,6 +507,7 @@ async def _enrich_one(client, sem, s, company_id):
         "structured": json.dumps(structured if isinstance(structured, dict)
                                  else {}),
         "transcript": json.dumps(lines, ensure_ascii=False),
+        "quality_flags": scan_quality(lines, analysis, dur or 0),
         "cost": det.get("totalCostUsd") or 0,
         "has_recording": 1 if (det.get("recordingStatus") or "") == "ready"
         else 0,
@@ -505,6 +516,8 @@ async def _enrich_one(client, sem, s, company_id):
         # stamped by dial_now(): only dashboard-placed outbound calls
         # (manual + Meta auto-dial) qualify for WhatsApp follow-up
         "dial_source": md.get("source") or "",
+        "campaign_id": md.get("campaign_id") or "",
+        "campaign_kind": md.get("campaign_kind") or "",
     }
 
 
@@ -580,14 +593,16 @@ async def refresh_calls_from_speko():
                     f" status={Q}, duration_seconds={Q}, usage_json={Q},"
                     f" talk_ratio={Q}, objections_json={Q}, next_action={Q},"
                     f" disposition={Q}, intent_verdict={Q},"
-                    f" intent_confidence={Q} WHERE id={Q}",
+                    f" intent_confidence={Q}, campaign_id={Q},"
+                    f" quality_flags={Q} WHERE id={Q}",
                     (cid, p["outcome"], p["summary"],
                      p["structured"], p["transcript"], p["cost"],
                      p["has_recording"], p["to"], p["status"],
                      p["duration"], p["usage"], an["talk_ratio"],
                      json.dumps(an["objections"]), an["next_action"],
                      an["disposition"], an["intent"],
-                     an["intent_confidence"], sid),
+                     an["intent_confidence"], p["campaign_id"],
+                     json.dumps(p["quality_flags"]), sid),
                 )
                 lid = lead["id"] if lead else None
                 if lid:
@@ -636,9 +651,30 @@ async def refresh_calls_from_speko():
                                 "Prospect asked for a callback on the call.")
                     # post-call WhatsApp follow-up, once per call, only
                     # for dashboard-placed outbound (manual + auto-dial)
+                    # campaign bookkeeping first so the WhatsApp variant
+                    # knows the kind (review link / payment amount)
+                    camp = None
+                    if p.get("campaign_id"):
+                        camp = _campaign_ctx(con, p["campaign_id"], lid)
+                        if camp:
+                            con.execute(
+                                f"UPDATE campaign_leads SET status='done',"
+                                f" called_at={Q} WHERE campaign_id={Q}"
+                                f" AND lead_id={Q}",
+                                (now_iso(), p["campaign_id"], lid))
+                            con.execute(
+                                f"UPDATE campaigns SET"
+                                f" done_count=done_count+1 WHERE id={Q}",
+                                (p["campaign_id"],))
+                            if an["intent"] in ("buying", "callback",
+                                                "curious"):
+                                con.execute(
+                                    f"UPDATE campaigns SET interested_count="
+                                    f"interested_count+1 WHERE id={Q}",
+                                    (p["campaign_id"],))
                     if p.get("dial_source") == "dashboard_manual":
                         await maybe_whatsapp_followup(
-                            con, cid, sid, lead, p)
+                            con, cid, sid, lead, p, camp)
                 new += 1
             con.commit()
         finally:
@@ -809,6 +845,38 @@ def analyze_call(outcome, summary, lines, structured):
         "next_action": nxt, "disposition": disp,
         "derived": True,  # UI labels these "detected signals"
     }
+
+
+# Call-quality monitor: heuristic flags scanned from every transcript so
+# Karthik sees quality at a glance instead of worrying blindly.
+_BANNED_ENGLISH = (
+    "sorry", "could you", "didn't catch", "did not catch", "pardon",
+    "come again", "repeat that", "say that again", "i didn't understand",
+    "couldn't understand", "can you hear me",
+)
+
+
+def scan_quality(lines, analysis, duration):
+    """Return a list of quality flag strings; empty means clean."""
+    flags = []
+    agent_text = " ".join(
+        l.get("text", "") for l in lines
+        if l.get("speaker") == "agent").lower()
+    lead_words = " ".join(
+        l.get("text", "") for l in lines
+        if l.get("speaker") == "lead").split()
+    if any(b in agent_text for b in _BANNED_ENGLISH):
+        flags.append("english_fallback")
+    if analysis.get("disposition") == "no_answer":
+        return flags
+    if len(lead_words) < 4:
+        flags.append("lead_silent")
+    if duration and duration > 30 \
+            and (analysis.get("talk_ratio") or 0) < 0.15:
+        flags.append("agent_monologue")
+    if duration and duration < 15:
+        flags.append("too_short")
+    return flags
 
 
 def lead_score(lead, calls):
@@ -1366,11 +1434,94 @@ GUARDRAILS: Price, subsidy, company name — verified info మాత్రమే
 """
 
 
-def personalize_solar_call(lead):
+# ------------------------------------------------- campaigns ------------
+def _campaign_ctx(con, campaign_id, lead_id):
+    """Load {kind, params} for a campaign call (WhatsApp variant needs
+    the review link / payment amount). Merges campaign-level params with
+    per-lead params."""
+    try:
+        c = con.execute(
+            f"SELECT kind, params_json FROM campaigns WHERE id={Q}",
+            (campaign_id,)).fetchone()
+        if not c:
+            return None
+        params = json.loads(c["params_json"] or "{}")
+        cl = con.execute(
+            f"SELECT params_json FROM campaign_leads"
+            f" WHERE campaign_id={Q} AND lead_id={Q}",
+            (campaign_id, lead_id)).fetchone()
+        if cl:
+            params.update(json.loads(cl["params_json"] or "{}"))
+        return {"kind": c["kind"], "params": params}
+    except Exception:
+        return None
+
+
+# One engine, four painkillers. Each kind injects a CAMPAIGN BRIEF block
+# at the top of the per-call prompt (via personalize_solar_call) so the
+# same Priya agent runs revival / survey-confirm / review / payment
+# calls without any agent-config change.
+CAMPAIGN_KINDS = {
+    "revival": {
+        "label": "Dead-lead revival",
+        "desc": "Cold old leads → reactivation call, zero ad spend",
+        "brief": (
+            "CAMPAIGN: DEAD-LEAD REVIVAL. This person enquired about solar "
+            "long ago and went cold. Do NOT pretend you spoke recently. "
+            "Opener angle: 'మీ area లో కొత్త subsidy benefits వచ్చాయి, "
+            "అందుకే మళ్ళీ call చేస్తున్నాం'. Goal: re-qualify fast "
+            "(independent house + roof + monthly bill), then close with "
+            "'మా team contact చేస్తారు'. If they already installed solar "
+            "or say not interested, accept gracefully and end warmly."
+        ),
+    },
+    "survey_confirm": {
+        "label": "Survey confirmation",
+        "desc": "Confirm the site survey, kill technician no-shows",
+        "brief": (
+            "CAMPAIGN: SURVEY CONFIRMATION. This lead already booked a free "
+            "site survey. Your ONLY job: confirm they will be available. "
+            "Ask: 'మా technician survey కి వస్తారు — మీరు ఇంట్లో ఉంటారు "
+            "కదా?'. If yes: confirm warmly and end. If no: ask which day "
+            "works instead and note it. Do NOT re-sell solar, do NOT "
+            "re-qualify — this call is 60 seconds max."
+        ),
+    },
+    "review": {
+        "label": "Review + referral",
+        "desc": "Post-install: Google review ask + neighbour referral",
+        "brief": (
+            "CAMPAIGN: REVIEW + REFERRAL. This customer's solar installation "
+            "is already done. Thank them warmly first. Then ask TWO things: "
+            "(1) 'మీ experience ఎలా ఉంది?' — if happy, tell them we will "
+            "WhatsApp the Google review link. (2) 'మీ neighbours లేదా "
+            "friends లో ఎవరికైనా solar కావాలంటే మా number share చేయండి'. "
+            "Keep it short and grateful — never pushy, never salesy."
+        ),
+    },
+    "payment": {
+        "label": "Payment reminder",
+        "desc": "Polite pending-payment follow-up call",
+        "brief": (
+            "CAMPAIGN: PAYMENT REMINDER. This customer has a pending "
+            "payment{amount_phrase}. Be POLITE and brief — never "
+            "threatening, never embarrassing. Opener: '{name} గారు, మీ "
+            "pending payment గురించి gentle reminder కోసం call "
+            "చేస్తున్నాం'. Ask when they can complete it. If they promise "
+            "a date, note it warmly and end. If they raise an installation "
+            "issue, note it and say our team will resolve it first."
+        ),
+    },
+}
+
+
+def personalize_solar_call(lead, campaign_kind=None, campaign_params=None):
     """Build per-call (first_message, system_prompt) from a lead dict.
 
     lead keys used: name, city, property_type, monthly_bill_inr, source.
     Missing fields are simply omitted — never shown as blank/unknown.
+    campaign_kind injects a CAMPAIGN BRIEF block overriding the default
+    new-lead flow (revival / survey_confirm / review / payment).
     """
     lead = lead or {}
     name = (lead.get("name") or "").strip()
@@ -1401,6 +1552,18 @@ def personalize_solar_call(lead):
     lead_block = " | ".join(facts) if facts else "details తెలియవు — politely అడిగి తెలుసుకో"
     prompt = SOLAR_PROMPT_TEMPLATE.format(
         lead_block=lead_block, greeting_line=greeting, lead_name=disp_name)
+    if campaign_kind and campaign_kind in CAMPAIGN_KINDS:
+        params = dict(campaign_params or {})
+        params.setdefault("name", disp_name)
+        amt = params.get("amount")
+        try:
+            params["amount_phrase"] = (f" of ₹{int(float(amt)):,}"
+                                       if amt else "")
+        except (TypeError, ValueError):
+            params["amount_phrase"] = ""
+        brief = CAMPAIGN_KINDS[campaign_kind]["brief"].format(**params)
+        prompt = (f"CAMPAIGN BRIEF (highest priority — overrides the "
+                  f"default flow below):\n{brief}\n\n---\n{prompt}")
     return greeting, prompt
 
 
@@ -1450,8 +1613,13 @@ async def wa_send_template(pnid, token, template, to_digits, params):
     return r.status_code, r.text[:400]
 
 
-async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
-    """Fire the post-call WhatsApp follow-up exactly once per call."""
+async def maybe_whatsapp_followup(con, cid, call_id, lead, p, camp=None):
+    """Fire the post-call WhatsApp follow-up exactly once per call.
+
+    camp = {"kind": campaign_kind, "params": {...}} for campaign calls:
+    review campaigns send the Google-review link, payment campaigns
+    include the pending amount. Everything else uses _WA_BODY.
+    """
     try:
         row = con.execute(
             f"SELECT wa_sent FROM calls WHERE id={Q}",
@@ -1475,6 +1643,9 @@ async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
                         (call_id,))
             return
         key = None
+        body2 = None
+        kind = (camp or {}).get("kind") or ""
+        cparams = (camp or {}).get("params") or {}
         if disp == "no_answer":
             key = "no_answer"
         elif intent == "callback":
@@ -1483,7 +1654,27 @@ async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
             key = "buying"
         elif intent == "curious":
             key = "curious"
-        if not key:
+        if kind == "review" and key in ("buying", "curious", "callback"):
+            link = (cparams.get("review_link") or "").strip()
+            body2 = ("మీ installation కి ధన్యవాదాలు! Google లో మీ review "
+                     "మాకు చాలా helpful గా ఉంటుంది"
+                     + (f": {link}" if link else ".")
+                     + " మీ neighbours కి solar కావాలంటే మా number share "
+                       "చేయండి!")
+        elif kind == "payment" and key in ("callback", "curious", "buying"):
+            amt = cparams.get("amount")
+            try:
+                amt_s = f" ₹{int(float(amt)):,}" if amt else ""
+            except (TypeError, ValueError):
+                amt_s = ""
+            body2 = (f"మీ pending payment{amt_s} గురించి reminder. "
+                     "ఎప్పుడు complete చేస్తారో రిప్లై ఇవ్వండి, మా team "
+                     "help చేస్తుంది.")
+        elif kind == "survey_confirm" and key in ("buying", "curious",
+                                                 "callback"):
+            body2 = ("మీ site survey confirm అయింది! మా technician వస్తారు "
+                     "— ఏమైనా changes ఉంటే ఈ నంబర్‌కే message చేయండి.")
+        if not key and not body2:
             return
         name = (lead.get("name") or "").strip()
         p1 = f"{name} గారు" if name else "అండి"
@@ -1494,14 +1685,14 @@ async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
             return
         status, body = await wa_send_template(
             wac["wa_phone_number_id"], wac["wa_token"],
-            wac["wa_template"], d, [p1, _WA_BODY[key]])
+            wac["wa_template"], d, [p1, body2 or _WA_BODY[key]])
         con.execute(f"UPDATE calls SET wa_sent=1 WHERE id={Q}",
                     (call_id,))
         if status in (200, 201):
             log_activity_inline(
                 con, cid, lead.get("id"), "whatsapp",
                 "WhatsApp follow-up sent",
-                _WA_BODY[key][:80] + "…")
+                (body2 or _WA_BODY[key])[:80] + "…")
         else:
             log_activity_inline(
                 con, cid, lead.get("id"), "whatsapp",
@@ -1518,7 +1709,8 @@ async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
             pass
 
 
-def dial_now(company_id, phone, lead_id=None, name="", lead=None):
+def dial_now(company_id, phone, lead_id=None, name="", lead=None,
+             campaign_id=None, campaign_kind=None, campaign_params=None):
     """Place a manual outbound call via Speko. Returns (ok, message)."""
     comp = get_company(company_id) or {}
     agent_id = comp.get("speko_agent_id") or ""
@@ -1548,11 +1740,15 @@ def dial_now(company_id, phone, lead_id=None, name="", lead=None):
             pass
     if not lead_row.get("name"):
         lead_row["name"] = name
-    greeting, prompt = personalize_solar_call(lead_row)
+    greeting, prompt = personalize_solar_call(
+        lead_row, campaign_kind=campaign_kind,
+        campaign_params=campaign_params)
     payload = {"to": to, "agentId": agent_id,
                "firstMessage": greeting, "systemPrompt": prompt,
                "metadata": {"lead_id": lead_id, "name": name,
-                            "source": "dashboard_manual"}}
+                            "source": "dashboard_manual",
+                            "campaign_id": campaign_id or "",
+                            "campaign_kind": campaign_kind or ""}}
     if comp.get("caller_id"):
         payload["from"] = comp["caller_id"]
     try:
@@ -2258,6 +2454,319 @@ async def wa_settings_update(req: Request):
     con.close()
     log_activity(cid, None, "settings", "WhatsApp integration updated", "")
     return {"ok": True, "test": test_result}
+
+
+# ------------------------------------------------- campaigns api --------
+_CAMPAIGN_ACTIVE = {}  # campaign_id -> True while its runner task lives
+_CAMPAIGN_DIAL_GAP = 45  # seconds between campaign dials (carrier-safe)
+
+
+def _campaign_report(con, camp):
+    cost = con.execute(
+        f"SELECT COALESCE(SUM(cost_usd),0) FROM calls"
+        f" WHERE campaign_id={Q}", (camp["id"],)).fetchone()[0] or 0
+    return {
+        "id": camp["id"], "name": camp["name"], "kind": camp["kind"],
+        "kind_label": CAMPAIGN_KINDS.get(camp["kind"], {}).get(
+            "label", camp["kind"]),
+        "status": camp["status"],
+        "total": camp["total"], "done": camp["done_count"],
+        "interested": camp["interested_count"],
+        "cost_usd": round(cost, 4),
+        "cost_inr": round(cost * USD_INR, 2),
+        "created_at": camp["created_at"],
+    }
+
+
+def _create_campaign(con, cid, name, kind, lead_rows, params):
+    """lead_rows: list of (lead_id, per_lead_params dict)."""
+    camp_id = f"camp-{uuid.uuid4().hex[:12]}"
+    con.execute(
+        f"INSERT INTO campaigns (id, company_id, name, kind, status,"
+        f" params_json, total, created_at)"
+        f" VALUES ({Q},{Q},{Q},{Q},'draft',{Q},{Q},{Q})",
+        (camp_id, cid, name, kind, json.dumps(params or {}),
+         len(lead_rows), now_iso()))
+    for lid, lp in lead_rows:
+        if USE_PG:
+            con.execute(
+                f"INSERT INTO campaign_leads"
+                f" (campaign_id, lead_id, params_json)"
+                f" VALUES ({Q},{Q},{Q}) ON CONFLICT DO NOTHING",
+                (camp_id, lid, json.dumps(lp or {})))
+        else:
+            con.execute(
+                f"INSERT OR IGNORE INTO campaign_leads"
+                f" (campaign_id, lead_id, params_json)"
+                f" VALUES ({Q},{Q},{Q})",
+                (camp_id, lid, json.dumps(lp or {})))
+    # INSERT OR IGNORE may skip dupes: recount actual rows
+    total = con.execute(
+        f"SELECT COUNT(*) FROM campaign_leads WHERE campaign_id={Q}",
+        (camp_id,)).fetchone()[0]
+    con.execute(f"UPDATE campaigns SET total={Q} WHERE id={Q}",
+                (total, camp_id))
+    return camp_id
+
+
+@app.get("/api/campaigns")
+def campaign_list(req: Request):
+    cid = _cid(req)
+    con = db()
+    rows = con.execute(
+        f"SELECT * FROM campaigns WHERE company_id={Q}"
+        f" ORDER BY created_at DESC", (cid,)).fetchall()
+    out = [_campaign_report(con, dict(r)) for r in rows]
+    con.close()
+    return {"items": out, "kinds": {
+        k: {"label": v["label"], "desc": v["desc"]}
+        for k, v in CAMPAIGN_KINDS.items()}}
+
+
+@app.get("/api/campaigns/{camp_id}")
+def campaign_detail(camp_id: str, req: Request):
+    cid = _cid(req)
+    con = db()
+    camp = con.execute(
+        f"SELECT * FROM campaigns WHERE id={Q} AND company_id={Q}",
+        (camp_id, cid)).fetchone()
+    if not camp:
+        con.close()
+        raise HTTPException(404, "campaign not found")
+    rep = _campaign_report(con, dict(camp))
+    rows = con.execute(
+        f"SELECT cl.status, cl.called_at, l.id, l.name, l.phone"
+        f" FROM campaign_leads cl JOIN leads l ON l.id=cl.lead_id"
+        f" WHERE cl.campaign_id={Q} ORDER BY cl.lead_id",
+        (camp_id,)).fetchall()
+    rep["leads"] = [dict(r) for r in rows]
+    rep["params"] = json.loads(camp["params_json"] or "{}")
+    con.close()
+    return rep
+
+
+@app.post("/api/campaigns")
+async def campaign_create(req: Request):
+    """Create a campaign from pipeline stage or explicit lead ids."""
+    cid = _cid(req)
+    body = await req.json()
+    kind = (body.get("kind") or "revival").strip()
+    if kind not in CAMPAIGN_KINDS:
+        raise HTTPException(400, "unknown campaign kind")
+    name = (body.get("name")
+            or f"{CAMPAIGN_KINDS[kind]['label']} {now_iso()[:10]}").strip()
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        raise HTTPException(400, "params must be an object")
+    stage = (body.get("stage") or "").strip()
+    lead_ids = body.get("lead_ids") or []
+    con = db()
+    if stage:
+        rows = con.execute(
+            f"SELECT id FROM leads WHERE company_id={Q} AND stage={Q}"
+            f" AND dnc=0", (cid, stage)).fetchall()
+        lead_ids = [r["id"] for r in rows]
+    else:
+        # keep only this company's leads
+        rows = con.execute(
+            f"SELECT id FROM leads WHERE company_id={Q} AND dnc=0",
+            (cid,)).fetchall()
+        mine = {r["id"] for r in rows}
+        lead_ids = [i for i in lead_ids if i in mine]
+    if not lead_ids:
+        con.close()
+        raise HTTPException(400, "no leads selected")
+    camp_id = _create_campaign(
+        con, cid, name, kind, [(i, {}) for i in lead_ids], params)
+    con.commit()
+    con.close()
+    log_activity(cid, None, "campaign", f"Campaign created: {name}",
+                 f"{CAMPAIGN_KINDS[kind]['label']} · {len(lead_ids)} leads")
+    return {"ok": True, "id": camp_id, "total": len(lead_ids)}
+
+
+@app.post("/api/campaigns/import")
+async def campaign_import(req: Request):
+    """CSV upload → new leads + campaign. Raw CSV text in the request
+    body; kind/name/params as query params. Columns: name, phone, city,
+    amount (optional per-kind extra)."""
+    cid = _cid(req)
+    kind = (req.query_params.get("kind") or "revival").strip()
+    if kind not in CAMPAIGN_KINDS:
+        raise HTTPException(400, "unknown campaign kind")
+    name = (req.query_params.get("name")
+            or f"{CAMPAIGN_KINDS[kind]['label']} {now_iso()[:10]}").strip()
+    try:
+        params = json.loads(req.query_params.get("params") or "{}")
+    except Exception:
+        raise HTTPException(400, "params must be valid JSON")
+    raw = (await req.body()).decode("utf-8-sig", errors="replace")
+    rows = list(csv.DictReader(raw.splitlines()))
+    if not rows:
+        raise HTTPException(400, "empty CSV")
+    con = db()
+    seen = {r["phone"] for r in con.execute(
+        f"SELECT phone FROM leads WHERE company_id={Q}", (cid,)).fetchall()}
+    lead_rows = []
+    now = now_iso()
+    for r in rows:
+        phone = digits(r.get("phone") or "")
+        if len(phone) < 10 or phone in seen:
+            continue
+        seen.add(phone)
+        lid = insert_lead(
+            con, name=(r.get("name") or "").strip()[:80], phone=phone,
+            source=kind, created_at=now)
+        con.execute(
+            f"UPDATE leads SET company_id={Q}, city={Q}, stage='new',"
+            f" last_activity_at={Q} WHERE id={Q}",
+            (cid, (r.get("city") or "").strip()[:80], now, lid))
+        lp = {}
+        if (r.get("amount") or "").strip():
+            try:
+                lp["amount"] = float(r["amount"])
+            except ValueError:
+                pass
+        lead_rows.append((lid, lp))
+    if not lead_rows:
+        con.close()
+        raise HTTPException(400, "no valid new leads in CSV")
+    camp_id = _create_campaign(con, cid, name, kind, lead_rows, params)
+    con.commit()
+    con.close()
+    log_activity(cid, None, "campaign",
+                 f"Campaign created: {name}",
+                 f"{CAMPAIGN_KINDS[kind]['label']} · {len(lead_rows)}"
+                 f" leads from CSV")
+    return {"ok": True, "id": camp_id, "total": len(lead_rows)}
+
+
+async def _run_campaign(campaign_id):
+    """Background sequential dialer: one call at a time, gap between
+    dials. Stops when the campaign is paused/finished or the queue
+    empties. Never raises — a dead runner must not take the sync down."""
+    if campaign_id in _CAMPAIGN_ACTIVE:
+        return
+    _CAMPAIGN_ACTIVE[campaign_id] = True
+    try:
+        while True:
+            con = db()
+            camp = con.execute(
+                f"SELECT * FROM campaigns WHERE id={Q}",
+                (campaign_id,)).fetchone()
+            if not camp or camp["status"] != "running":
+                con.close()
+                break
+            cid, kind = camp["company_id"], camp["kind"]
+            cparams = json.loads(camp["params_json"] or "{}")
+            row = con.execute(
+                f"SELECT cl.lead_id, cl.params_json, l.name, l.phone,"
+                f" l.dnc FROM campaign_leads cl"
+                f" JOIN leads l ON l.id=cl.lead_id"
+                f" WHERE cl.campaign_id={Q} AND cl.status='queued'"
+                f" ORDER BY cl.lead_id LIMIT 1",
+                (campaign_id,)).fetchone()
+            if not row:
+                con.execute(
+                    f"UPDATE campaigns SET status='done' WHERE id={Q}",
+                    (campaign_id,))
+                con.commit()
+                con.close()
+                log_activity(cid, None, "campaign",
+                             f"Campaign finished: {camp['name']}", "")
+                break
+            con.close()
+            if row["dnc"]:
+                con2 = db()
+                con2.execute(
+                    f"UPDATE campaign_leads SET status='skipped'"
+                    f" WHERE campaign_id={Q} AND lead_id={Q}",
+                    (campaign_id, row["lead_id"]))
+                con2.commit()
+                con2.close()
+                continue
+            lparams = json.loads(row["params_json"] or "{}")
+            merged = dict(cparams)
+            merged.update(lparams)
+            try:
+                ok, msg = await asyncio.to_thread(
+                    dial_now, cid, row["phone"], row["lead_id"],
+                    row["name"] or "", campaign_id=campaign_id,
+                    campaign_kind=kind, campaign_params=merged)
+            except Exception as e:
+                ok, msg = False, f"{type(e).__name__}: {str(e)[:100]}"
+            con2 = db()
+            con2.execute(
+                f"UPDATE campaign_leads SET status={Q}"
+                f" WHERE campaign_id={Q} AND lead_id={Q}",
+                ("calling" if ok else "failed",
+                 campaign_id, row["lead_id"]))
+            con2.commit()
+            con2.close()
+            log_activity(cid, row["lead_id"], "campaign",
+                         f"Campaign dial {'placed' if ok else 'failed'}",
+                         msg[:120])
+            await asyncio.sleep(_CAMPAIGN_DIAL_GAP)
+    except Exception:
+        pass
+    finally:
+        _CAMPAIGN_ACTIVE.pop(campaign_id, None)
+
+
+@app.post("/api/campaigns/{camp_id}/start")
+async def campaign_start(camp_id: str, req: Request):
+    cid = _cid(req)
+    con = db()
+    camp = con.execute(
+        f"SELECT * FROM campaigns WHERE id={Q} AND company_id={Q}",
+        (camp_id, cid)).fetchone()
+    if not camp:
+        con.close()
+        raise HTTPException(404, "campaign not found")
+    queued = con.execute(
+        f"SELECT COUNT(*) FROM campaign_leads"
+        f" WHERE campaign_id={Q} AND status='queued'",
+        (camp_id,)).fetchone()[0]
+    if not queued:
+        con.close()
+        raise HTTPException(400, "nothing queued")
+    if DEMO_MODE:
+        con.close()
+        return {"ok": True, "demo": True,
+                "msg": f"(demo) would dial {queued} leads"}
+    comp = get_company(cid) or {}
+    if not comp.get("speko_agent_id"):
+        con.close()
+        raise HTTPException(400, "no Speko agent configured")
+    con.execute(f"UPDATE campaigns SET status='running' WHERE id={Q}",
+                (camp_id,))
+    con.commit()
+    con.close()
+    asyncio.create_task(_run_campaign(camp_id))
+    log_activity(cid, None, "campaign",
+                 f"Campaign started: {camp['name']}",
+                 f"{queued} leads queued · ~45s between dials")
+    return {"ok": True, "queued": queued}
+
+
+@app.post("/api/campaigns/{camp_id}/pause")
+def campaign_pause(camp_id: str, req: Request):
+    cid = _cid(req)
+    con = db()
+    camp = con.execute(
+        f"SELECT * FROM campaigns WHERE id={Q} AND company_id={Q}",
+        (camp_id, cid)).fetchone()
+    if not camp:
+        con.close()
+        raise HTTPException(404, "campaign not found")
+    con.execute(
+        f"UPDATE campaigns SET status='paused' WHERE id={Q}",
+        (camp_id,))
+    con.commit()
+    con.close()
+    log_activity(cid, None, "campaign",
+                 f"Campaign paused: {camp['name']}", "")
+    return {"ok": True}
 
 
 if DEMO_MODE:
