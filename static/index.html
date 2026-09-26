@@ -919,7 +919,7 @@ async function openCall(id){
     </div><button class="iconbtn" onclick="closeDrawer()">${ic('x',16)}</button></div>
     <div class="dactions">
       ${c.lead_id?`<button class="btn sm primary" onclick="closeDrawer();openLead(${c.lead_id})">${ic('user',14)} Lead record</button>`:''}
-      ${c.demo?`<audio controls src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`:`<a class="btn sm" href="/api/calls/${c.id}/recording" target="_blank">${ic('play',14)} Recording</a>`}
+      ${`<audio controls preload="none" src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`}
     </div>`;
   $('dbody').innerHTML=`
     ${c.summary?`<div class="ana"><div class="ak">Speko call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
