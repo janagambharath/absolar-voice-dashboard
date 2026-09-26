@@ -98,7 +98,7 @@ button.brandmark{cursor:pointer}
 .bnav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:40;
   background:var(--surface);border-top:1px solid var(--border);
   padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-  grid-template-columns:repeat(9,1fr)}
+  grid-auto-flow:column;grid-auto-columns:1fr} /* visible buttons always share the row evenly — client view hides Cos/Meta */
 .bnav button{border:0;background:none;display:flex;flex-direction:column;
   align-items:center;gap:3px;font-size:9px;font-weight:700;color:var(--text-2);
   padding:6px 0;letter-spacing:.02em}
@@ -757,6 +757,7 @@ async function renderDash(){
       api(cq('/api/tasks?filter=today')),api(cq('/api/calls')).catch(()=>[])]);
     KPIS=k;BILL=b;
     const upd=k.demo_mode?'demo data':'live';
+    if(!$('dashSub'))return; // user switched tabs while KPIs were loading — drop the stale home-view update
     $('dashSub').innerHTML=`Here's what's happening at <b>${esc(CO.name)}</b> · ${k.leads} leads · ${k.dials} dials · ${upd}`;
     const cards=[
       {cls:'hero',lbl:'Qualified leads',val:k.qualified,d:'up',dt:k.qualify_rate+'% of connects',cap:'from answered calls',go:'pipe'},
@@ -874,7 +875,7 @@ async function doCreateCompany(){
     $('ccLogin').textContent=r.login_id;$('ccPass').textContent=r.password;
     openModal('coCredModal');
     renderCompanies();
-    COMPANIES=await api('/api/companies');
+    COMPANIES=await api('/api/admin/companies');
   }catch(e){toast('Create failed: '+e.message)}
 }
 async function editCompany(cid){
@@ -906,7 +907,7 @@ async function doSaveCompany(){
     if(k)body.smallest_api_key=k;
     await ajpatch('/api/admin/companies/'+cid,body);
     closeModal('coEditModal');toast('Saved');renderCompanies();
-    COMPANIES=await api('/api/companies');
+    COMPANIES=await api('/api/admin/companies');
   }catch(e){toast('Save failed: '+e.message)}
 }
 async function resetCompanyPass(cid){
@@ -923,7 +924,7 @@ async function deleteCompany(cid){
   try{
     await ajdel('/api/admin/companies/'+cid);
     toast('Company deleted');renderCompanies();
-    COMPANIES=await api('/api/companies');
+    COMPANIES=await api('/api/admin/companies');
     if(CO&&CO.id===cid){CO=null;if(COMPANIES.length)setCompany(COMPANIES[0])}
     if(!COMPANIES.length)go('companies');
   }catch(e){toast('Delete failed: '+e.message)}
@@ -1152,7 +1153,7 @@ async function openCall(id){
     </div><button class="iconbtn" onclick="closeDrawer()">${ic('x',16)}</button></div>
     <div class="dactions">
       ${c.lead_id?`<button class="btn sm primary" onclick="closeDrawer();openLead(${c.lead_id})">${ic('user',14)} Lead record</button>`:''}
-      ${`<audio controls preload="none" src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`}
+      ${c.has_recording?`<audio controls preload="none" src="/api/calls/${c.id}/recording" style="width:100%;margin-top:4px"></audio>`:''}
     </div>`;
   $('dbody').innerHTML=`
     ${c.summary?`<div class="ana"><div class="ak">Call summary</div><div class="av">${esc(c.summary)}</div></div>`:''}
@@ -1350,7 +1351,33 @@ async function renderAgent(){
    <span class="pill p-amber">Goes live on Speko the moment you save</span></div>
    <div class="cbody" id="agForm"><div class="sk" style="height:300px"></div></div></div>`;
   try{
-    const [info,cfg]=await Promise.all([api(cq('/api/agent')).catch(()=>null),api(cq('/api/agent/config'))]);
+    const [info,cfg]=await Promise.all([api(cq('/api/agent')).catch(()=>null),api(cq('/api/agent/config')).catch(()=>null)]);
+    let sm=null;
+    if(!cfg) sm=await api(cq('/api/agent/smallest')).catch(()=>null);
+    if(sm){
+      // Smallest-primary company: read-only view of what's live in the
+      // Smallest console (Atoms API has no agent-update endpoint).
+      $('agStatus').innerHTML=`
+        <div class="arow"><span class="ak">Agent</span><span class="av" style="font-weight:600">${esc(sm.name||'—')}</span></div>
+        <div class="arow"><span class="ak">Language</span><span class="av">${esc(sm.language||'—')}</span></div>
+        <div class="arow"><span class="ak">Voice</span><span class="av mono" style="font-size:11px;word-break:break-all">${esc(sm.voice||'—')}</span></div>
+        <div class="arow"><span class="ak">Voice model</span><span class="av mono">${esc(sm.voice_model||'—')}</span></div>
+        <div class="arow"><span class="ak">AI model</span><span class="av mono">${esc(sm.llm_model||'—')}</span></div>
+        <div class="arow"><span class="ak">Caller ID</span><span class="av mono">${esc(CO.caller_id||'—')}</span></div>`;
+      $('agForm').innerHTML=`
+        <div class="pill p-amber" style="margin-bottom:12px">Read-only — this agent lives in the Smallest console. Edit the prompt there; this view shows what's live.</div>
+        <div class="frow"><label class="fld">System prompt — live in the Smallest console</label>
+          <textarea class="ctl mono" rows="14" style="width:100%" readonly>${esc(sm.systemPrompt||'(prompt not exposed by the API)')}</textarea></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="renderAgent()">Refresh</button>
+        </div>`;
+      return;
+    }
+    if(!cfg){
+      $('agStatus').innerHTML='<div class="small">Agent status unavailable.</div>';
+      $('agForm').innerHTML='<div class="small">No voice agent linked to this company yet — link one in /admin → Companies.</div>';
+      return;
+    }
     const st=$('agStatus');
     if(info){
       st.innerHTML=`
