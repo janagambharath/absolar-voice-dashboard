@@ -30,6 +30,7 @@ import json
 import math
 import os
 import re
+import secrets
 import struct
 import time
 import uuid
@@ -97,20 +98,53 @@ async def basic_auth(request: Request, call_next):
     # must stay public (it has its own verify-token + signature checks).
     if (not DASH_USER or request.url.path == "/api/health"
             or request.url.path == "/api/webhooks/facebook"):
+        request.state.role = "operator"
+        request.state.company_id = ""
         return await call_next(request)
-    ok = False
+    role, company_id, ok = "operator", "", False
     auth = request.headers.get("authorization", "")
     if auth.startswith("Basic "):
         try:
             u, p = base64.b64decode(auth[6:]).decode().split(":", 1)
-            ok = hmac.compare_digest(u, DASH_USER) and hmac.compare_digest(p, DASH_PASS)
+            if hmac.compare_digest(u, DASH_USER) and hmac.compare_digest(p, DASH_PASS):
+                ok = True
+            else:
+                # company-scoped client login: locked to one company,
+                # client view always forced on
+                con = db()
+                row = con.execute(
+                    f"SELECT id, password_hash FROM companies WHERE login_id={Q} AND login_id<>''",
+                    (u,)).fetchone()
+                con.close()
+                if row and _verify_password(p, row["password_hash"] or ""):
+                    ok, role, company_id = True, "company", row["id"]
         except Exception:
             pass
     if not ok:
         return PlainTextResponse(
             "Login required", 401,
             {"WWW-Authenticate": 'Basic realm="Voice-AI CRM"'})
+    request.state.role = role
+    request.state.company_id = company_id
     return await call_next(request)
+
+
+def _hash_password(pw: str, salt: str = "") -> str:
+    """PBKDF2-SHA256 password hash. Only the hash is ever stored."""
+    salt = salt or secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(),
+                             bytes.fromhex(salt), 200_000)
+    return f"pbkdf2$200000${salt}${dk.hex()}"
+
+
+def _verify_password(pw: str, stored: str) -> bool:
+    try:
+        _, iters, salt, h = (stored or "").split("$")
+        dk = hashlib.pbkdf2_hmac("sha256", pw.encode(),
+                                 bytes.fromhex(salt), int(iters))
+        return hmac.compare_digest(dk.hex(), h)
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------- db ----
@@ -133,6 +167,14 @@ if not _live:
                  primary_color=(_src["primary_color"] if _src else "#15803D") or "#15803D")
     con.execute(f"UPDATE companies SET name='AB Solar (Demo)' WHERE id={Q}"
                 f" AND name='AB Solar Power Systems'", (_DEMO_ID,))
+# --- client login for ab-solar-live: login_id 'absolar', PBKDF2-SHA256 hash
+# of the generated password (plaintext handed to Bharath once, never stored
+# anywhere). A company login is locked to its own company with client view
+# forced on — set here once, idempotent. ---
+con.execute(
+    f"UPDATE companies SET login_id='absolar',"
+    f" password_hash='pbkdf2$200000$1d34394b5078f5db58b036aacfe9a42e$83f52e8100d94733ece317df5bc9638d565e0678949061eced507d359201716d'"
+    f" WHERE id={Q} AND (login_id IS NULL OR login_id='')", (_LIVE_ID,))
 con.commit()
 con.close()
 
@@ -172,7 +214,8 @@ def _public_company(d: dict) -> dict:
         return {}
     out = {}
     for k, v in d.items():
-        if isinstance(k, str) and k.endswith(_SECRET_SUFFIXES):
+        if isinstance(k, str) and (k.endswith(_SECRET_SUFFIXES)
+                                   or k == "password_hash"):
             out[f"has_{k}"] = bool(v)
         else:
             out[k] = v
@@ -1261,12 +1304,19 @@ def health():
 
 
 @app.get("/api/companies")
-def companies():
+def companies(req: Request):
     con = db()
     rows = con.execute("SELECT * FROM companies ORDER BY created_at").fetchall()
     con.close()
+    out = [_public_company(dict(r)) for r in rows]
+    if getattr(req.state, "role", "") == "company":
+        # a client login sees only its own company, always in client view —
+        # the Integrations nav, wallet and toggle can never appear for it
+        out = [c for c in out if c["id"] == req.state.company_id]
+        for c in out:
+            c["hide_integrations"] = 1
     # secrets (provider API keys/tokens) never leave the server
-    return [_public_company(dict(r)) for r in rows]
+    return out
 
 
 @app.patch("/api/companies/{target_id}")
@@ -1275,7 +1325,7 @@ async def update_company(target_id: str, req: Request):
     client billing rate for a company. Gated on the CURRENT company
     BEFORE applying the update — a client company can never un-hide
     itself or change its own rate."""
-    _assert_integrations_visible(_cid(req))
+    _assert_integrations_visible(req, _cid(req))
     body = await req.json()
     sets, vals = [], []
     if "hide_integrations" in body:
@@ -1308,6 +1358,10 @@ async def update_company(target_id: str, req: Request):
 
 
 def _cid(req: Request, body_company=""):
+    # a company-scoped login is locked to its own company — the ?company=
+    # param / body field is ignored for them
+    if getattr(req.state, "role", "") == "company" and getattr(req.state, "company_id", ""):
+        return req.state.company_id
     return (req.query_params.get("company") or body_company
             or DEFAULT_COMPANY)
 
@@ -2279,7 +2333,7 @@ async def billing(req: Request):
     # Operator wallet — provider balances/costs are never client-visible.
     # Client companies (hide_integrations=1) get the honest bill from
     # /api/billing/client instead.
-    _assert_integrations_visible(_cid(req))
+    _assert_integrations_visible(req, _cid(req))
     if DEMO_MODE or not SPEKO_API_KEY:
         return {
             "demo": True,
@@ -2690,7 +2744,11 @@ async def fb_lead(req: Request):
 # Client companies (hide_integrations=1) must never see provider wiring:
 # API keys, balances, agent configs are operator-only. The frontend hides
 # the Integrations view; these 403s are the defense-in-depth backend gate.
-def _assert_integrations_visible(cid: str):
+def _assert_integrations_visible(req: Request, cid: str):
+    # company-scoped logins are always client-view: operator routes
+    # (integrations, wallet billing, client-view toggle) are never theirs
+    if getattr(req.state, "role", "") == "company":
+        raise HTTPException(403, "operator only")
     comp = get_company(cid) or {}
     if comp.get("hide_integrations"):
         raise HTTPException(403, "integrations hidden for this company")
@@ -2700,7 +2758,7 @@ def _assert_integrations_visible(cid: str):
 def meta_settings(req: Request):
     """Meta Lead Ads wiring: webhook URL, token status, auto-dial + cap."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     comp = get_company(cid) or {}
     host = str(req.base_url).rstrip("/")
     return {
@@ -2718,7 +2776,7 @@ def meta_settings(req: Request):
 async def meta_settings_update(req: Request):
     """Save Page token (enables lead enrichment), auto-dial toggle, daily cap."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     body = await req.json()
     sets, vals = [], []
     if "page_token" in body and isinstance(body["page_token"], str):
@@ -2754,7 +2812,7 @@ async def meta_settings_update(req: Request):
 def meta_activity(req: Request):
     """Recent auto-dial events for the Meta integration view."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     con = db()
     rows = con.execute(
         f"SELECT a.created_at, a.title, a.detail, l.name"
@@ -2772,7 +2830,7 @@ def smallest_settings(req: Request):
     Read-only probes against Smallest so the owner can pick an agent
     and caller ID without touching the Smallest console."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     comp = get_company(cid) or {}
     key = comp.get("smallest_api_key") or ""
     out = {
@@ -2809,7 +2867,7 @@ def smallest_settings(req: Request):
 async def smallest_settings_update(req: Request):
     """Save the per-company Smallest API key, agent id and caller ID."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     body = await req.json()
     sets, vals = [], []
     if "api_key" in body and isinstance(body["api_key"], str):
@@ -2848,7 +2906,7 @@ async def smallest_test(req: Request):
     (or the saved one). Never places a call."""
     body = await req.json()
     cid = _cid(req, body.get("company", ""))
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     key = (body.get("api_key") or "").strip()
     if not key:
         comp = get_company(cid) or {}
@@ -2869,7 +2927,7 @@ async def smallest_test(req: Request):
 def wa_settings(req: Request):
     """WhatsApp Cloud API wiring for post-call follow-ups."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     comp = get_company(cid) or {}
     return {
         "connected": bool(comp.get("wa_phone_number_id")
@@ -2888,7 +2946,7 @@ async def wa_settings_update(req: Request):
     is given, so misconfiguration surfaces immediately instead of on
     the next real call."""
     cid = _cid(req)
-    _assert_integrations_visible(cid)
+    _assert_integrations_visible(req, cid)
     body = await req.json()
     sets, vals = [], []
     if "phone_number_id" in body and isinstance(body["phone_number_id"],
