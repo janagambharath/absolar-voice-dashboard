@@ -650,10 +650,13 @@ async def refresh_calls_from_speko():
 
 OBJECTION_KEYWORDS = {
     "price": ["price", "cost", "expensive", "costly", "rate", "charge",
-              "ధర", "రేటు", "డబ్బు", "ఖర్చు"],
-    "trust": ["scam", "fraud", "fake", "cheat", "నమ్మకం", "మోసం"],
-    "timing": ["later", "busy", "not now", "తర్వాత", "తరువాత"],
-    "roof": ["rent", "rented", "apartment", "flat", "అద్దె"],
+              "ధర", "రేటు", "డబ్బు", "ఖర్చు",
+              "dhara", "dabbu", "kharchu", "karchu"],
+    "trust": ["scam", "fraud", "fake", "cheat", "నమ్మకం", "మోసం",
+              "mosam"],
+    "timing": ["later", "busy", "not now", "తర్వాత", "తరువాత",
+               "రేపు", "tarvata", "taruvata", "repu"],
+    "roof": ["rent", "rented", "apartment", "flat", "అద్దె", "adde"],
     "subsidy": ["subsidy", "government", "సబ్సిడీ"],
 }
 
@@ -700,44 +703,96 @@ def talk_ratio(lines):
     return round(lead_chars / total, 2) if total else 0
 
 
+# Bilingual intent keywords: English + Telugu script + Roman Telugish.
+# Speko's outcome/summary for a Telugu call frequently comes back in
+# Telugu, so English-only matching silently classified every Telugu
+# call as "unknown" — callbacks never scheduled, DNC never honored.
+_KW_NOT_INTERESTED = (
+    "not interested", "declined", "not_interested",
+    "not qualified", "not_qualified", "unqualified",
+    "వద్దు", "వద్దండి", "అవసరం లేదు", "ఆసక్తి లేదు",
+    "ఇష్టం లేదు", "interest లేదు",
+    "vaddu", "vaddandi", "avasaram ledu", "interest ledu",
+)
+_KW_DNC = (
+    "dnc", "do not call", "not to call", "don't call", "dont call",
+    "never call",
+    "కాల్ చేయవద్దు", "కాల్ చేయొద్దు",
+    "మళ్లీ చేయవద్దు", "మళ్ళీ చేయవద్దు", "మళ్లీ కాల్ వద్దు",
+    "call cheyavaddu", "call cheyoddu", "malli cheyavaddu",
+)
+_KW_CALLBACK = (
+    "callback", "call back", "call me", "busy", "later",
+    "తర్వాత", "తరువాత", "సాయంత్రం", "రేపు",
+    "మళ్లీ చేయండి", "మళ్ళీ చేయండి", "మళ్లీ కాల్ చేయండి",
+    "tarvata", "taruvata", "sayantram", "sayankalam", "repu",
+    "malli cheyandi",
+)
+_KW_BUYING = (
+    "survey", "book", "site visit", "qualified",
+    "సర్వే", "బుక్", "సైట్ విజిట్", "సర్వేకి రండి",
+    "survey ki randi",
+)
+_KW_NO_ANSWER = (
+    "no answer", "no-answer", "no_answer", "voicemail",
+    "not reachable", "ఎత్తలేదు", "లిఫ్ట్ చేయలేదు",
+)
+_KW_WRONG_NUMBER = (
+    "wrong number", "wrong_number", "రాంగ్ నంబర్", "తప్పు నంబర్",
+)
+_KW_CURIOUS = (
+    "interested", "curious", "details", "price", "cost", "subsidy",
+    "ఎంత", "ధర", "వివరాలు", "సబ్సిడీ",
+    "entha", "dhara", "vivaralu",
+)
+
+
+def _classify(text):
+    """Single-pass intent ladder. Returns (intent, confidence,
+    disposition, next_action). Order matters: terminal negatives first,
+    then callback (so 'book a callback' never reads as buying)."""
+    if any(k in text for k in _KW_NOT_INTERESTED + _KW_DNC):
+        disp = ("dnc" if any(k in text for k in _KW_DNC)
+                else "not_interested_timing")
+        nxt = "Suppress (DNC)" if disp == "dnc" else "Move to Nurture"
+        return "not_interested", 0.9, disp, nxt
+    if any(k in text for k in _KW_CALLBACK):
+        return "callback", 0.85, "qualified_callback", "Schedule callback"
+    if any(k in text for k in _KW_BUYING):
+        return "buying", 0.85, "qualified_survey", "Book site survey"
+    if any(k in text for k in _KW_NO_ANSWER):
+        return "unknown", 0.9, "no_answer", "Retry tomorrow"
+    if any(k in text for k in _KW_WRONG_NUMBER):
+        return "not_interested", 0.9, "wrong_number", "Mark lost"
+    if any(k in text for k in _KW_CURIOUS):
+        return "curious", 0.7, "interested_followup", "Send details on WhatsApp"
+    if any(k in text for k in ("connected", "answered")):
+        return "curious", 0.55, "interested_followup", "Review transcript"
+    return "unknown", 0.5, "failed", "Review transcript"
+
+
 def analyze_call(outcome, summary, lines, structured):
     """Derive intent verdict, objections, next action, suggested
     disposition from the outcome + transcript. Speko's own summary and
-    outcome are kept verbatim; everything derived is labeled as such."""
+    outcome are kept verbatim; everything derived is labeled as such.
+
+    Two tiers: Speko's report first; if it yields nothing, fall back to
+    the lead's own words. Agent speech is excluded from the fallback —
+    questions like 'మీకు interest ఉందా?' must not count as intent."""
     s = f"{outcome} {summary}".lower()
-    if any(k in s for k in ("not interested", "declined", "not_interested",
-                            "dnc", "do not call", "not qualified",
-                            "not_qualified", "unqualified")):
-        intent, conf = "not_interested", 0.9
-        disp = ("dnc" if "dnc" in s or "do not call" in s
-                else "not_interested_timing")
-        nxt = "Move to Nurture" if disp != "dnc" else "Suppress (DNC)"
-    elif any(k in s for k in ("callback", "call back", "call me",
-                              "busy", "later")):
-        # before the survey/book branch: "please book a callback"
-        # contains "book" but is a callback, not a buying signal
-        intent, conf = "callback", 0.85
-        disp, nxt = "qualified_callback", "Schedule callback"
-    elif any(k in s for k in ("survey", "book", "site visit", "qualified")):
-        intent, conf = "buying", 0.85
-        disp, nxt = "qualified_survey", "Book site survey"
-    elif any(k in s for k in ("no answer", "no-answer", "voicemail",
-                              "not reachable")):
-        intent, conf = "unknown", 0.9
-        disp, nxt = "no_answer", "Retry tomorrow"
-    elif any(k in s for k in ("wrong number", "wrong_number")):
-        intent, conf = "not_interested", 0.9
-        disp, nxt = "wrong_number", "Mark lost"
-    elif any(k in s for k in ("interested", "curious", "details", "price",
-                              "cost", "subsidy")):
-        intent, conf = "curious", 0.7
-        disp, nxt = "interested_followup", "Send details on WhatsApp"
-    elif any(k in s for k in ("connected", "answered")):
-        intent, conf = "curious", 0.55
-        disp, nxt = "interested_followup", "Review transcript"
-    else:
-        intent, conf = "unknown", 0.5
-        disp, nxt = "failed", "Review transcript"
+    intent, conf, disp, nxt = _classify(s)
+    # The lead's own terminal words override a weak report guess: a
+    # vague/weak summary must not drown out the lead actually saying
+    # "వద్దు". Only 0.9 verdicts (explicit negative, no-answer, wrong
+    # number) are final.
+    if conf < 0.9:
+        lead_text = " ".join(
+            l.get("text", "") for l in lines
+            if l.get("speaker") == "lead").lower()
+        if lead_text.strip():
+            i2, c2, d2, n2 = _classify(lead_text)
+            if i2 in ("not_interested", "callback", "buying"):
+                intent, conf, disp, nxt = i2, min(c2, 0.8), d2, n2
     return {
         "intent": intent, "intent_confidence": conf,
         "objections": detect_objections(lines),
@@ -1441,7 +1496,26 @@ def recording(call_id: str):
     url = (upstream.json() or {}).get("url", "")
     if not url:
         raise HTTPException(502, "recording unavailable")
-    return RedirectResponse(url, status_code=302)
+    # Proxy the bytes through the dashboard so the recording plays
+    # inline in the call drawer instead of opening an external site.
+    try:
+        head = httpx.head(url, timeout=15, follow_redirects=True)
+        media = head.headers.get("content-type", "").split(";")[0].strip()
+    except Exception:
+        media = ""
+    if not media.startswith("audio/"):
+        media = "audio/mpeg"
+
+    def gen():
+        try:
+            with httpx.stream("GET", url, timeout=120,
+                              follow_redirects=True) as rs:
+                for chunk in rs.iter_bytes(65536):
+                    yield chunk
+        except Exception:
+            return
+
+    return StreamingResponse(gen(), media_type=media)
 
 
 # ------------------------------------------------------ misc api ------
