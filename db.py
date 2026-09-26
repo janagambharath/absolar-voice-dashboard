@@ -310,6 +310,7 @@ _CALL_COLS = [
     ("next_action", "TEXT DEFAULT ''"),
     ("disposition", "TEXT DEFAULT ''"),
     ("has_recording", "INTEGER DEFAULT 0"),
+    ("recording_url", "TEXT DEFAULT ''"),
 ]
 
 

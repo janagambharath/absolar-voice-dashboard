@@ -642,7 +642,8 @@ async def _persist_synced_call(con, sid, p, fallback_company, agent_company,
     con.execute(
         f"UPDATE calls SET company_id={Q}, provider={Q}, outcome={Q},"
         f" summary={Q}, structured_json={Q}, transcript={Q},"
-        f" cost_usd={Q}, has_recording={Q}, to_number={Q},"
+        f" cost_usd={Q}, has_recording={Q}, recording_url={Q},"
+        f" to_number={Q},"
         f" status={Q}, duration_seconds={Q}, usage_json={Q},"
         f" talk_ratio={Q}, objections_json={Q}, next_action={Q},"
         f" disposition={Q}, intent_verdict={Q},"
@@ -650,7 +651,8 @@ async def _persist_synced_call(con, sid, p, fallback_company, agent_company,
         f" quality_flags={Q} WHERE id={Q}",
         (cid, provider, p["outcome"], p["summary"],
          p["structured"], p["transcript"], p["cost"],
-         p["has_recording"], p["to"], p["status"],
+         p["has_recording"], p.get("recording_url") or "", p["to"],
+         p["status"],
          p["duration"], p["usage"], an["talk_ratio"],
          json.dumps(an["objections"]), an["next_action"],
          an["disposition"], an["intent"],
@@ -793,6 +795,29 @@ async def refresh_calls_from_speko():
         sync_running = False
 
 
+def _smallest_summary(outcome, dur, analysis):
+    """One-line summary for a Smallest call, built from the dashboard's
+    own analysis (Smallest's API exposes no summary field). Factual
+    only: outcome + duration + detected intent + next action."""
+    parts = []
+    oc = (outcome or "unknown").replace("_", " ").strip()
+    if oc:
+        parts.append(oc[:1].upper() + oc[1:])
+    try:
+        d = int(dur or 0)
+    except (TypeError, ValueError):
+        d = 0
+    if d:
+        parts.append(f"{d // 60}m {d % 60}s" if d >= 60 else f"{d}s")
+    intent = (analysis.get("intent") or "").replace("_", " ")
+    if intent and intent != "unknown":
+        parts.append(intent)
+    nxt = (analysis.get("next_action") or "").strip()
+    if nxt:
+        parts.append(nxt)
+    return " · ".join(parts) or "Call synced"
+
+
 async def refresh_calls_from_smallest():
     """Background sync: new Smallest conversations only.
 
@@ -855,6 +880,14 @@ async def refresh_calls_from_smallest():
                 outcome = (reason or status
                            or ("connected" if (dur or 0) > 0 else "unknown"))
                 analysis = analyze_call(outcome, "", lines, {})
+                # Smallest bills in credits; measured 1 credit ~ $1
+                # (0.1343 credits billed ~$0.134), so store as cost_usd.
+                try:
+                    sm_cost = float(det.get("cost")
+                                    or log.get("cost") or 0)
+                except (TypeError, ValueError):
+                    sm_cost = 0.0
+                rec_url = det.get("recording_url") or ""
                 p = {
                     "to": det.get("to") or log.get("to") or "",
                     "company_id": cid,
@@ -866,14 +899,12 @@ async def refresh_calls_from_smallest():
                                    or log.get("started_at") or ""),
                     "duration": dur,
                     "outcome": outcome,
-                    "summary": "",
+                    "summary": _smallest_summary(outcome, dur, analysis),
                     "structured": json.dumps({}),
                     "transcript": json.dumps(lines, ensure_ascii=False),
-                    # Smallest bills in credits; per-call USD cost is not
-                    # exposed, so keep cost_usd at 0 rather than store a
-                    # number in an unknown unit.
-                    "cost": 0,
-                    "has_recording": 1 if det.get("recording_url") else 0,
+                    "cost": sm_cost,
+                    "has_recording": 1 if rec_url else 0,
+                    "recording_url": rec_url,
                     "usage": "[]",
                     "analysis": analysis,
                     "dial_source": variables.get("source") or "",
@@ -1216,11 +1247,60 @@ async def refresh_smallest_billing_cache(company_id="", force=False):
         return None
 
 
+def _demo_agent_info():
+    return {"demo": True, "name": "Priya (demo)",
+            "language": "Telugu", "voice": "demo", "updated_at": ""}
+
+
+async def get_smallest_agent_info(company):
+    """Agent card data for a Smallest-primary company. Mirrors the
+    Speko get_agent_info() shape so the Agent tab + dialer work the
+    same; the live prompt itself is edited in the Smallest console."""
+    comp = company or {}
+    cid = comp.get("id") or ""
+    agent_id = comp.get("smallest_agent_id") or ""
+    key = comp.get("smallest_api_key") or ""
+    if DEMO_MODE or not agent_id or not key:
+        return None
+    ck, cts = f"agent_cache_smallest_{cid}", f"agent_cache_smallest_ts_{cid}"
+    try:
+        ts = float(kv_get(cts) or 0)
+    except Exception:
+        ts = 0
+    if time.time() - ts < AGENT_CACHE_S:
+        try:
+            return json.loads(kv_get(ck) or "null")
+        except Exception:
+            pass
+    try:
+        agents = await asyncio.to_thread(smallest_atoms.list_agents, key)
+    except Exception:
+        return None
+    a = next((x for x in agents if x.get("id") == agent_id), None)
+    if not a:
+        return None
+    lang = a.get("language") or ""
+    lang = {"te": "Telugu", "hi": "Hindi", "en": "English"}.get(lang, lang)
+    out = {
+        "name": a.get("name") or "",
+        "language": lang,
+        "voice": a.get("voice") or "",
+        "voice_model": a.get("voice_model") or "",
+        "provider": "smallest",
+        "updated_at": now_iso(),
+    }
+    kv_set(ck, json.dumps(out))
+    kv_set(cts, str(time.time()))
+    return out
+
+
 async def get_agent_info(company):
     agent_id = (company or {}).get("speko_agent_id") or ""
+    if not DEMO_MODE and not agent_id:
+        # Smallest-primary company: same card, Smallest agent
+        return await get_smallest_agent_info(company) or _demo_agent_info()
     if DEMO_MODE or not agent_id:
-        return {"demo": True, "name": "Priya (demo)",
-                "language": "Telugu", "voice": "demo", "updated_at": ""}
+        return _demo_agent_info()
     try:
         ts = float(kv_get("agent_cache_ts") or 0)
     except Exception:
@@ -1380,9 +1460,10 @@ def admin_companies(req: Request):
             "login_id": c.get("login_id") or "",
             "has_login": bool(c.get("password_hash")),
             "client_view": bool(c.get("hide_integrations")),
+            # wired = key + agent: sync/fetch works. Dialing additionally
+            # needs smallest_from_number (handled with Speko fallback).
             "smallest_ready": bool(c.get("smallest_api_key")
-                                   and c.get("smallest_agent_id")
-                                   and c.get("smallest_from_number")),
+                                   and c.get("smallest_agent_id")),
             # operator-only wiring: every ID the operator controls
             "speko_agent_id": c.get("speko_agent_id") or "",
             "smallest_agent_id": c.get("smallest_agent_id") or "",
@@ -1470,8 +1551,19 @@ async def admin_update_company(cid: str, req: Request):
             vals.append(body[col].strip())
     if body.get("smallest_api_key"):
         # blank = keep the stored key; only a non-empty value overwrites
+        new_key = str(body["smallest_api_key"]).strip()
+        # validate before saving: a bad key fails loudly here, not silently later
+        try:
+            await asyncio.to_thread(smallest_atoms.list_agents, new_key)
+        except SmallestError as e:
+            con.close()
+            raise HTTPException(400, f"Smallest rejected the key: {e}")
+        except Exception as e:
+            con.close()
+            raise HTTPException(
+                502, f"could not reach Smallest: {type(e).__name__}")
         sets.append(f"smallest_api_key={Q}")
-        vals.append(str(body["smallest_api_key"]).strip())
+        vals.append(new_key)
     if "rate_per_min" in body:
         try:
             rate = float(body["rate_per_min"])
@@ -1726,7 +1818,8 @@ async def add_lead(req: Request):
                  f"Source: {body.get('source', 'manual')}")
     dial = None
     if AUTO_DIAL and not DEMO_MODE:
-        ok, msg = dial_now(cid, phone, lid, body.get("name", ""))
+        # Smallest-first like the Meta webhook; Speko stays the backup
+        ok, msg = dial_primary(cid, phone, lid, body.get("name", ""))
         dial = {"ok": ok, "message": msg}
     return {"id": lid, "dial": dial}
 
@@ -2511,8 +2604,9 @@ def call_detail(call_id: str):
 @app.get("/api/calls/{call_id}/recording")
 def recording(call_id: str):
     con = db()
-    r = con.execute(f"SELECT demo, lead_id FROM calls WHERE id={Q}",
-                    (call_id,)).fetchone()
+    r = con.execute(
+        f"SELECT demo, lead_id, provider, recording_url FROM calls"
+        f" WHERE id={Q}", (call_id,)).fetchone()
     con.close()
     if not r:
         raise HTTPException(404, "call not found")
@@ -2521,6 +2615,13 @@ def recording(call_id: str):
         if not path.exists():
             raise HTTPException(404, "no recording")
         return StreamingResponse(open(path, "rb"), media_type="audio/wav")
+    if (r["provider"] or "") == "smallest":
+        # Smallest hands us the recording URL at sync time; proxy it
+        # the same way so it plays inline in the call drawer.
+        url = r["recording_url"] or ""
+        if not url:
+            raise HTTPException(502, "recording unavailable")
+        return _proxy_audio(url)
     with speko() as c:
         upstream = c.get(f"/v1/sessions/{call_id}/recording")
     if upstream.status_code != 200:
@@ -2528,6 +2629,10 @@ def recording(call_id: str):
     url = (upstream.json() or {}).get("url", "")
     if not url:
         raise HTTPException(502, "recording unavailable")
+    return _proxy_audio(url)
+
+
+def _proxy_audio(url: str):
     # Proxy the bytes through the dashboard so the recording plays
     # inline in the call drawer instead of opening an external site.
     try:
@@ -2731,6 +2836,42 @@ async def agent_config_update(req: Request):
     log_activity(cid, None, "agent_update", "Agent config updated",
                  "Updated: " + ", ".join(sorted(patch.keys())))
     return {"ok": True, "updated": sorted(patch.keys())}
+
+
+@app.get("/api/agent/smallest")
+async def smallest_agent_config(req: Request):
+    """Read-only Smallest agent detail: what's live in the Smallest
+    console (name, voice, models, system prompt). Editing happens in
+    the Smallest console — the Atoms API exposes no agent-update
+    endpoint, so the dashboard shows instead of edits."""
+    cid = _cid(req)
+    _assert_integrations_visible(req, cid)
+    comp = get_company(cid) or {}
+    agent_id = comp.get("smallest_agent_id") or ""
+    key = comp.get("smallest_api_key") or ""
+    if DEMO_MODE or not agent_id or not key:
+        raise HTTPException(400, "no Smallest agent linked to this company")
+    try:
+        a = await asyncio.to_thread(smallest_atoms.get_agent, key, agent_id)
+    except SmallestError as e:
+        raise HTTPException(502, f"smallest: {e}")
+    if not isinstance(a, dict):
+        a = {}
+    vc = (a.get("synthesizer") or {}).get("voiceConfig") or {}
+    prompt = (a.get("systemPrompt") or a.get("system_prompt")
+              or a.get("prompt") or a.get("instructions") or "")
+    return {
+        "name": a.get("name") or "",
+        "agent_id": agent_id,
+        "language": (a.get("language") or {}).get("default")
+        if isinstance(a.get("language"), dict) else (a.get("language") or ""),
+        "voice": vc.get("voiceId") or "",
+        "voice_model": vc.get("model") or "",
+        "llm_model": ((a.get("llm") or {}).get("model")
+                      or a.get("llmModel") or ""),
+        "systemPrompt": prompt,
+        "read_only": True,
+    }
 
 
 @app.get("/api/numbers")
