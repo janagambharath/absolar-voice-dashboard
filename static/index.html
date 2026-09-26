@@ -588,6 +588,20 @@ ol.steps b{color:var(--ink);font-weight:600}
     <div class="frow"><label class="fld">Client login ID</label>
       <input class="ctl mono" id="ceLogin" style="width:100%"></div>
     <div class="frow"><label class="fld"><input type="checkbox" id="ceClientView" style="margin-right:8px">Client view — hide Integrations & wallet from this login</label></div>
+    <hr class="hr">
+    <div class="msub" style="margin-bottom:10px">Voice provider wiring — operator only. Client logins never see these.</div>
+    <div class="frow"><label class="fld">Speko agent ID</label>
+      <input class="ctl mono" id="ceSpekoAgent" style="width:100%" placeholder="agent_…"></div>
+    <div class="frow"><label class="fld">Smallest agent ID</label>
+      <input class="ctl mono" id="ceSmallestAgent" style="width:100%" placeholder="6ab80…"></div>
+    <div class="frow"><label class="fld">Smallest API key</label>
+      <input type="password" class="ctl mono" id="ceSmallestKey" style="width:100%" placeholder="Leave blank to keep current"></div>
+    <div class="frow"><label class="fld">Smallest from number</label>
+      <input class="ctl mono" id="ceSmallestFrom" style="width:100%" placeholder="+91…"></div>
+    <div class="frow"><label class="fld">Caller ID</label>
+      <input class="ctl mono" id="ceCallerId" style="width:100%" placeholder="+91…"></div>
+    <div class="frow"><label class="fld">Billing rate (₹/min)</label>
+      <input type="number" class="ctl" id="ceRate" style="width:100%" min="0" step="0.5"></div>
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('coEditModal')">Cancel</button>
       <button class="btn primary" onclick="doSaveCompany()">Save</button>
@@ -869,12 +883,28 @@ async function editCompany(cid){
   $('ceCid').value=c.id;$('ceId').textContent=c.id;
   $('ceName').value=c.name;$('ceLogin').value=c.login_id||'';
   $('ceClientView').checked=!!c.client_view;
+  // operator-only wiring — every ID lives here
+  $('ceSpekoAgent').value=c.speko_agent_id||'';
+  $('ceSmallestAgent').value=c.smallest_agent_id||'';
+  $('ceSmallestKey').value='';
+  $('ceSmallestKey').placeholder=c.has_smallest_api_key?'Set — leave blank to keep':'Not set';
+  $('ceSmallestFrom').value=c.smallest_from_number||'';
+  $('ceCallerId').value=c.caller_id||'';
+  $('ceRate').value=c.rate_per_min??15;
   openModal('coEditModal');
 }
 async function doSaveCompany(){
   const cid=$('ceCid').value;
   try{
-    await ajpatch('/api/admin/companies/'+cid,{name:$('ceName').value.trim(),login_id:$('ceLogin').value.trim(),client_view:$('ceClientView').checked});
+    const body={name:$('ceName').value.trim(),login_id:$('ceLogin').value.trim(),client_view:$('ceClientView').checked,
+      speko_agent_id:$('ceSpekoAgent').value.trim(),
+      smallest_agent_id:$('ceSmallestAgent').value.trim(),
+      smallest_from_number:$('ceSmallestFrom').value.trim(),
+      caller_id:$('ceCallerId').value.trim(),
+      rate_per_min:parseFloat($('ceRate').value)||0};
+    const k=$('ceSmallestKey').value.trim();
+    if(k)body.smallest_api_key=k;
+    await ajpatch('/api/admin/companies/'+cid,body);
     closeModal('coEditModal');toast('Saved');renderCompanies();
     COMPANIES=await api('/api/companies');
   }catch(e){toast('Save failed: '+e.message)}
@@ -1325,7 +1355,6 @@ async function renderAgent(){
     if(info){
       st.innerHTML=`
         <div class="arow"><span class="ak">Agent</span><span class="av" style="font-weight:600">${esc(info.name||cfg.name||'—')}</span></div>
-        <div class="arow"><span class="ak">Agent ID</span><span class="av mono">${esc(cfg.agent_id||'—')}</span></div>
         <div class="arow"><span class="ak">Language</span><span class="av">${esc(info.language||'—')}</span></div>
         <div class="arow"><span class="ak">Voice</span><span class="av mono" style="font-size:11px;word-break:break-all">${esc(info.voice||cfg.voice||'—')}</span></div>
         <div class="arow"><span class="ak">Caller ID</span><span class="av mono">${esc(CO.caller_id||'—')}</span></div>
