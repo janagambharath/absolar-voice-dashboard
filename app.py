@@ -521,8 +521,6 @@ def norm_entries(entries):
     return lines, outcome
 
 
-sync_running = False
-
 
 def _skip_ids():
     try:
@@ -1333,7 +1331,6 @@ def health():
     return {"ok": True, "demo_mode": DEMO_MODE,
             "speko_configured": bool(SPEKO_API_KEY),
             "auto_dial": AUTO_DIAL,
-            "sync_running": sync_running,
             "last_sync": kv_get("last_sync"),
             "version": 3,
             "usd_inr": USD_INR,
@@ -1521,6 +1518,10 @@ async def admin_update_company(cid: str, req: Request):
                 (*vals, cid))
     con.commit()
     con.close()
+    if body.get("smallest_api_key") and not DEMO_MODE:
+        # fresh key just validated + saved: pull this company's Smallest
+        # history right away so the Calls tab fills without a manual sync
+        asyncio.create_task(refresh_calls_from_smallest())
     return {"ok": True}
 
 
@@ -1757,7 +1758,7 @@ async def add_lead(req: Request):
                  f"Source: {body.get('source', 'manual')}")
     dial = None
     if AUTO_DIAL and not DEMO_MODE:
-        # Smallest-first like the Meta webhook; Speko stays the backup
+        # Smallest-only auto-dial; skipped cleanly when not dial-ready
         ok, msg = dial_primary(cid, phone, lid, body.get("name", ""))
         dial = {"ok": ok, "message": msg}
     return {"id": lid, "dial": dial}
@@ -2779,8 +2780,6 @@ def usage_daily(req: Request):
 async def trigger_sync():
     if DEMO_MODE:
         return {"started": False, "demo": True}
-    if sync_running:
-        return {"started": False, "running": True}
     asyncio.create_task(refresh_calls_from_smallest())
     asyncio.create_task(refresh_billing_cache(force=True))
     return {"started": True}
@@ -2788,8 +2787,7 @@ async def trigger_sync():
 
 @app.get("/api/sync/status")
 def sync_status():
-    return {"running": sync_running,
-            "last_sync": kv_get("last_sync"),
+    return {"last_sync": kv_get("last_sync"),
             "last_sync_new": kv_get("last_sync_new")}
 
 
