@@ -103,6 +103,11 @@ _V3_COLS = [
     ("companies", "meta_daily_cap", "INTEGER DEFAULT 50"),
     ("leads", "meta_leadgen_id", "TEXT DEFAULT ''"),
     ("calls", "intent_confidence", "REAL DEFAULT 0"),
+    ("companies", "wa_phone_number_id", "TEXT DEFAULT ''"),
+    ("companies", "wa_token", "TEXT DEFAULT ''"),
+    ("companies", "wa_template", "TEXT DEFAULT ''"),
+    ("companies", "wa_enabled", "INTEGER DEFAULT 0"),
+    ("calls", "wa_sent", "INTEGER DEFAULT 0"),
 ]
 
 

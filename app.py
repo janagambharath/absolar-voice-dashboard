@@ -502,6 +502,9 @@ async def _enrich_one(client, sem, s, company_id):
         else 0,
         "usage": json.dumps(det.get("usage") or []),
         "analysis": analysis,
+        # stamped by dial_now(): only dashboard-placed outbound calls
+        # (manual + Meta auto-dial) qualify for WhatsApp follow-up
+        "dial_source": md.get("source") or "",
     }
 
 
@@ -631,6 +634,11 @@ async def refresh_calls_from_speko():
                                 con, cid, lid, "task",
                                 "Callback task created",
                                 "Prospect asked for a callback on the call.")
+                    # post-call WhatsApp follow-up, once per call, only
+                    # for dashboard-placed outbound (manual + auto-dial)
+                    if p.get("dial_source") == "dashboard_manual":
+                        await maybe_whatsapp_followup(
+                            con, cid, sid, lead, p)
                 new += 1
             con.commit()
         finally:
@@ -1396,6 +1404,120 @@ def personalize_solar_call(lead):
     return greeting, prompt
 
 
+# ------------------------------------------------- whatsapp follow-up ---
+# After a dashboard-placed call ends, the lead gets a WhatsApp template
+# message: missed-call nudge when they didn't pick up, next-step nudge
+# when they showed interest. Business-initiated messages REQUIRE an
+# approved template, so the body is fixed as:
+#   "నమస్తే {{1}}, AB Solar. {{2}}"
+# {{1}} = lead name (or అండి), {{2}} = one of _WA_BODY below.
+# The template (name stored per-company as wa_template) must be created
+# and approved in WhatsApp Manager before enabling.
+WA_API_VERSION = "v21.0"
+
+_WA_BODY = {
+    "no_answer": "మీకు కాల్ చేసాం — అందలేదు. సోలార్ గురించి మాట్లాడాలనుకుంటే ఈ నంబర్‌కే రిప్లై ఇవ్వండి, మా team కాల్ చేస్తుంది.",
+    "callback": "మీరు అడిగినట్టు మా team మళ్ళీ కాల్ చేస్తుంది. ముందుగా ఏమైనా డౌట్స్ ఉంటే ఇక్కడే అడగండి.",
+    "buying": "మీ interest కి ధన్యవాదాలు! Free site survey book చేసుకోవడానికి 'SURVEY' అని రిప్లై ఇవ్వండి.",
+    "curious": "సోలార్ పై మరిన్ని వివరాలు కావాలంటే రిప్లై ఇవ్వండి — subsidy, ధర, EMI అన్నీ క్లియర్‌గా చెప్తాం.",
+}
+
+
+async def wa_send_template(pnid, token, template, to_digits, params):
+    """Send one WhatsApp template message via the Cloud API."""
+    url = (f"https://graph.facebook.com/{WA_API_VERSION}/{pnid}"
+           f"/messages")
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_digits,
+        "type": "template",
+        "template": {
+            "name": template,
+            "language": {"code": "te"},
+            "components": [{
+                "type": "body",
+                "parameters": [{"type": "text", "text": p}
+                               for p in params],
+            }],
+        },
+    }
+    async with httpx.AsyncClient(timeout=25) as c:
+        r = await c.post(
+            url,
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            json=payload)
+    return r.status_code, r.text[:400]
+
+
+async def maybe_whatsapp_followup(con, cid, call_id, lead, p):
+    """Fire the post-call WhatsApp follow-up exactly once per call."""
+    try:
+        row = con.execute(
+            f"SELECT wa_sent FROM calls WHERE id={Q}",
+            (call_id,)).fetchone()
+        if row and row["wa_sent"]:
+            return
+        wac = con.execute(
+            f"SELECT wa_phone_number_id, wa_token, wa_template,"
+            f" wa_enabled FROM companies WHERE id={Q}",
+            (cid,)).fetchone()
+        wac = dict(wac) if wac else {}
+        if not (wac.get("wa_enabled") and wac.get("wa_phone_number_id")
+                and wac.get("wa_token") and wac.get("wa_template")):
+            return
+        an = p["analysis"]
+        disp, intent = an["disposition"], an["intent"]
+        if disp in ("dnc", "wrong_number") or intent == "not_interested" \
+                or (lead.get("dnc") if isinstance(lead, dict) else 0):
+            # never WhatsApp someone who said no — mark processed
+            con.execute(f"UPDATE calls SET wa_sent=1 WHERE id={Q}",
+                        (call_id,))
+            return
+        key = None
+        if disp == "no_answer":
+            key = "no_answer"
+        elif intent == "callback":
+            key = "callback"
+        elif intent == "buying":
+            key = "buying"
+        elif intent == "curious":
+            key = "curious"
+        if not key:
+            return
+        name = (lead.get("name") or "").strip()
+        p1 = f"{name} గారు" if name else "అండి"
+        d = digits(lead.get("phone") or p.get("to") or "")
+        if len(d) == 10:
+            d = "91" + d
+        if len(d) < 12:
+            return
+        status, body = await wa_send_template(
+            wac["wa_phone_number_id"], wac["wa_token"],
+            wac["wa_template"], d, [p1, _WA_BODY[key]])
+        con.execute(f"UPDATE calls SET wa_sent=1 WHERE id={Q}",
+                    (call_id,))
+        if status in (200, 201):
+            log_activity_inline(
+                con, cid, lead.get("id"), "whatsapp",
+                "WhatsApp follow-up sent",
+                _WA_BODY[key][:80] + "…")
+        else:
+            log_activity_inline(
+                con, cid, lead.get("id"), "whatsapp",
+                "WhatsApp follow-up failed",
+                f"HTTP {status}: {body[:120]}")
+    except Exception as e:
+        # never break the call sync because WhatsApp hiccuped
+        try:
+            log_activity_inline(
+                con, cid, lead.get("id") if isinstance(lead, dict)
+                else None, "whatsapp", "WhatsApp follow-up error",
+                f"{type(e).__name__}: {str(e)[:120]}")
+        except Exception:
+            pass
+
+
 def dial_now(company_id, phone, lead_id=None, name="", lead=None):
     """Place a manual outbound call via Speko. Returns (ok, message)."""
     comp = get_company(company_id) or {}
@@ -2070,6 +2192,72 @@ def meta_activity(req: Request):
         f" ORDER BY a.created_at DESC LIMIT 15", (cid,)).fetchall()
     con.close()
     return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/api/integrations/whatsapp")
+def wa_settings(req: Request):
+    """WhatsApp Cloud API wiring for post-call follow-ups."""
+    cid = _cid(req)
+    comp = get_company(cid) or {}
+    return {
+        "connected": bool(comp.get("wa_phone_number_id")
+                          and comp.get("wa_token")),
+        "enabled": bool(comp.get("wa_enabled")),
+        "template": comp.get("wa_template") or "",
+        "phone_number_id_set": bool(comp.get("wa_phone_number_id")),
+    }
+
+
+@app.patch("/api/integrations/whatsapp")
+async def wa_settings_update(req: Request):
+    """Save WhatsApp Cloud API credentials + template, toggle follow-ups.
+
+    Sends a test template message to the supplied test number when one
+    is given, so misconfiguration surfaces immediately instead of on
+    the next real call."""
+    cid = _cid(req)
+    body = await req.json()
+    sets, vals = [], []
+    if "phone_number_id" in body and isinstance(body["phone_number_id"],
+                                               str):
+        sets.append(f"wa_phone_number_id={Q}")
+        vals.append(body["phone_number_id"].strip())
+    if "token" in body and isinstance(body["token"], str):
+        sets.append(f"wa_token={Q}")
+        vals.append(body["token"].strip())
+    if "template" in body and isinstance(body["template"], str):
+        sets.append(f"wa_template={Q}")
+        vals.append(body["template"].strip())
+    if "enabled" in body:
+        sets.append(f"wa_enabled={Q}")
+        vals.append(1 if body["enabled"] else 0)
+    if not sets:
+        raise HTTPException(400, "nothing to update")
+    con = db()
+    con.execute(f"UPDATE companies SET {', '.join(sets)} WHERE id={Q}",
+                (*vals, cid))
+    con.commit()
+    comp = get_company(cid) or {}
+    test_to = (body.get("test_to") or "").strip()
+    test_result = None
+    if test_to and comp.get("wa_phone_number_id") and comp.get("wa_token") \
+            and comp.get("wa_template"):
+        d = digits(test_to)
+        if len(d) == 10:
+            d = "91" + d
+        try:
+            status, rbody = await wa_send_template(
+                comp["wa_phone_number_id"], comp["wa_token"],
+                comp["wa_template"], d,
+                ["Test గారు", _WA_BODY["no_answer"]])
+            test_result = {"ok": status in (200, 201),
+                           "detail": f"HTTP {status}: {rbody[:160]}"}
+        except Exception as e:
+            test_result = {"ok": False,
+                           "detail": f"{type(e).__name__}: {str(e)[:160]}"}
+    con.close()
+    log_activity(cid, None, "settings", "WhatsApp integration updated", "")
+    return {"ok": True, "test": test_result}
 
 
 if DEMO_MODE:
