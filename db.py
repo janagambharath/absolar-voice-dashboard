@@ -107,6 +107,16 @@ _V3_COLS = [
     ("companies", "wa_token", "TEXT DEFAULT ''"),
     ("companies", "wa_template", "TEXT DEFAULT ''"),
     ("companies", "wa_enabled", "INTEGER DEFAULT 0"),
+    # smallest atoms provider settings (per company)
+    ("companies", "smallest_api_key", "TEXT DEFAULT ''"),
+    ("companies", "smallest_agent_id", "TEXT DEFAULT ''"),
+    ("companies", "smallest_from_number", "TEXT DEFAULT ''"),
+    # provider marker on calls: 'speko' (default) or 'smallest'
+    ("calls", "provider", "TEXT DEFAULT 'speko'"),
+    # client view: hide the Integrations UI for handed-over client companies
+    ("companies", "hide_integrations", "INTEGER DEFAULT 0"),
+    # client billing rate (INR per minute) — billed on real synced minutes only
+    ("companies", "rate_per_min", "REAL DEFAULT 15"),
     ("calls", "wa_sent", "INTEGER DEFAULT 0"),
     ("calls", "campaign_id", "TEXT DEFAULT ''"),
     ("calls", "quality_flags", "TEXT DEFAULT '[]'"),
@@ -290,6 +300,7 @@ _LEAD_COLS = [
 
 _CALL_COLS = [
     ("company_id", "TEXT DEFAULT ''"),
+    ("provider", "TEXT DEFAULT 'speko'"),
     ("outcome", "TEXT DEFAULT ''"),
     ("summary", "TEXT DEFAULT ''"),
     ("structured_json", "TEXT DEFAULT '{}'"),
@@ -299,6 +310,13 @@ _CALL_COLS = [
     ("next_action", "TEXT DEFAULT ''"),
     ("disposition", "TEXT DEFAULT ''"),
     ("has_recording", "INTEGER DEFAULT 0"),
+]
+
+
+_COMPANY_COLS = [
+    ("smallest_api_key", "TEXT DEFAULT ''"),
+    ("smallest_agent_id", "TEXT DEFAULT ''"),
+    ("smallest_from_number", "TEXT DEFAULT ''"),
 ]
 
 
@@ -365,6 +383,7 @@ def migrate():
                     " ON activities(lead_id, created_at)")
         _add_cols(con, "leads", _LEAD_COLS)
         _add_cols(con, "calls", _CALL_COLS)
+        _add_cols(con, "companies", _COMPANY_COLS)
         # phone uniqueness is per-company, and empty phones (failed Meta
         # enrichment) must never collide. Runs after the column migrations
         # so company_id always exists, on fresh and old databases alike.
