@@ -48,6 +48,9 @@ from fastapi.responses import (
 from db import (db, init_db, insert_lead, insert_call_ignore, kv_get, kv_set,
                 Q, seed_company, backfill_company, USE_PG)
 
+import smallest_atoms
+from smallest_atoms import SmallestError
+
 BASE_DIR = Path(__file__).parent
 SPEKO_API_KEY = os.environ.get("SPEKO_API_KEY", "")
 SPEKO_AGENT_ID = os.environ.get("SPEKO_AGENT_ID", "")
@@ -71,6 +74,7 @@ app = FastAPI(title="REvorax Voice-AI CRM")
 async def lifespan(app):
     if not DEMO_MODE and SPEKO_API_KEY:
         asyncio.create_task(refresh_calls_from_speko())
+        asyncio.create_task(refresh_calls_from_smallest())
         asyncio.create_task(refresh_billing_cache())
     # a restart must never leave a campaign stuck in "running"
     try:
@@ -152,6 +156,27 @@ def get_company(cid: str = ""):
             "SELECT * FROM companies ORDER BY created_at LIMIT 1").fetchone()
     con.close()
     return dict(row) if row else None
+
+
+# Columns whose values are operator secrets — the browser must never see
+# them. The integrations GET routes already answer "is it set?" with
+# *_set booleans; this does the same for the company list.
+_SECRET_SUFFIXES = ("_key", "_token", "_secret")
+
+
+def _public_company(d: dict) -> dict:
+    """Company JSON safe for the UI: drop every *_key/*_token/*_secret
+    column, replacing each with a has_<col> boolean so the UI can show
+    'Set' pills without ever receiving the value."""
+    if not d:
+        return {}
+    out = {}
+    for k, v in d.items():
+        if isinstance(k, str) and k.endswith(_SECRET_SUFFIXES):
+            out[f"has_{k}"] = bool(v)
+        else:
+            out[k] = v
+    return out
 
 
 def lead_by_phone(phone: str, company_id: str):
@@ -521,6 +546,129 @@ async def _enrich_one(client, sem, s, company_id):
     }
 
 
+async def _persist_synced_call(con, sid, p, fallback_company, agent_company,
+                               provider="speko"):
+    """Store one enriched synced call + run post-call bookkeeping.
+
+    Shared by the Speko and Smallest background syncs. ``p`` is the
+    enriched-call dict both syncs build (same keys). ``agent_company``
+    maps voice-agent ids -> company ids. Returns True when stored.
+    """
+    # resolve the true company for this call:
+    # 1) lead_id stamped in dial metadata, 2) agent->company map,
+    # 3) phone match across all companies, 4) default fallback
+    lead, cid = None, ""
+    if p.get("meta_lead_id"):
+        r = con.execute(
+            f"SELECT * FROM leads WHERE id={Q}",
+            (p["meta_lead_id"],)).fetchone()
+        if r:
+            lead, cid = dict(r), r["company_id"] or ""
+    if not lead and p.get("agent_id") in agent_company:
+        cid = agent_company[p["agent_id"]]
+        lead = lead_by_phone(p["to"], cid)
+    if not lead:
+        lead, cid = lead_by_phone_any(p["to"])
+    if not cid:
+        cid = fallback_company
+    an = p["analysis"]
+    insert_call_ignore(
+        con, id=sid, lead_id=lead["id"] if lead else None,
+        to_number=p["to"], status=p["status"],
+        started_at=p["started_at"],
+        duration_seconds=p["duration"], demo=0)
+    con.execute(
+        f"UPDATE calls SET company_id={Q}, provider={Q}, outcome={Q},"
+        f" summary={Q}, structured_json={Q}, transcript={Q},"
+        f" cost_usd={Q}, has_recording={Q}, to_number={Q},"
+        f" status={Q}, duration_seconds={Q}, usage_json={Q},"
+        f" talk_ratio={Q}, objections_json={Q}, next_action={Q},"
+        f" disposition={Q}, intent_verdict={Q},"
+        f" intent_confidence={Q}, campaign_id={Q},"
+        f" quality_flags={Q} WHERE id={Q}",
+        (cid, provider, p["outcome"], p["summary"],
+         p["structured"], p["transcript"], p["cost"],
+         p["has_recording"], p["to"], p["status"],
+         p["duration"], p["usage"], an["talk_ratio"],
+         json.dumps(an["objections"]), an["next_action"],
+         an["disposition"], an["intent"],
+         an["intent_confidence"], p["campaign_id"],
+         json.dumps(p["quality_flags"]), sid),
+    )
+    lid = lead["id"] if lead else None
+    if lid:
+        # keep the stored score fresh so lists/kanban match the
+        # drawer (previously lists always showed 0)
+        lrow = con.execute(
+            f"SELECT * FROM leads WHERE id={Q}",
+            (lid,)).fetchone()
+        lcalls = [dict(x) for x in con.execute(
+            f"SELECT duration_seconds FROM calls"
+            f" WHERE lead_id={Q}", (lid,)).fetchall()]
+        score = lead_score(dict(lrow), lcalls)
+        con.execute(
+            f"UPDATE leads SET last_activity_at={Q}, score={Q}"
+            f" WHERE id={Q}", (now_iso(), score, lid))
+        if an["disposition"] == "dnc":
+            # prospect said do-not-call: suppress immediately,
+            # don't wait for a human to tap the disposition
+            con.execute(f"UPDATE leads SET dnc=1 WHERE id={Q}",
+                        (lid,))
+            log_activity_inline(
+                con, cid, lid, "note",
+                "Auto-suppressed (DNC)",
+                "Prospect asked not to be called again.")
+        elif an["intent"] == "callback":
+            # prospect asked for a callback: make sure there's
+            # an open task so it can't slip through
+            ex = con.execute(
+                f"SELECT id FROM tasks WHERE lead_id={Q}"
+                f" AND done=0 AND kind='callback' LIMIT 1",
+                (lid,)).fetchone()
+            if not ex:
+                tid = f"task-{uuid.uuid4().hex[:12]}"
+                due = (datetime.now(timezone.utc)
+                       + timedelta(days=1)).isoformat()
+                nm = (lead.get("name") or p["to"]).strip()
+                con.execute(
+                    f"INSERT INTO tasks (id, company_id, lead_id,"
+                    f" kind, title, due_at, created_at)"
+                    f" VALUES ({Q},{Q},{Q},{Q},{Q},{Q},{Q})",
+                    (tid, cid, lid, "callback",
+                     f"Call back {nm}", due, now_iso()))
+                log_activity_inline(
+                    con, cid, lid, "task",
+                    "Callback task created",
+                    "Prospect asked for a callback on the call.")
+        # post-call WhatsApp follow-up, once per call, only
+        # for dashboard-placed outbound (manual + auto-dial)
+        # campaign bookkeeping first so the WhatsApp variant
+        # knows the kind (review link / payment amount)
+        camp = None
+        if p.get("campaign_id"):
+            camp = _campaign_ctx(con, p["campaign_id"], lid)
+            if camp:
+                con.execute(
+                    f"UPDATE campaign_leads SET status='done',"
+                    f" called_at={Q} WHERE campaign_id={Q}"
+                    f" AND lead_id={Q}",
+                    (now_iso(), p["campaign_id"], lid))
+                con.execute(
+                    f"UPDATE campaigns SET"
+                    f" done_count=done_count+1 WHERE id={Q}",
+                    (p["campaign_id"],))
+                if an["intent"] in ("buying", "callback",
+                                    "curious"):
+                    con.execute(
+                        f"UPDATE campaigns SET interested_count="
+                        f"interested_count+1 WHERE id={Q}",
+                        (p["campaign_id"],))
+        if p.get("dial_source") == "dashboard_manual":
+            await maybe_whatsapp_followup(
+                con, cid, sid, lead, p, camp)
+    return True
+
+
 async def refresh_calls_from_speko():
     """Background sync: new sessions only, enriched in parallel."""
     global sync_running
@@ -539,12 +687,16 @@ async def refresh_calls_from_speko():
         known = {row["id"] for row in
                  con.execute("SELECT id FROM calls").fetchall()}
         # agent id -> company: a call belongs to whichever company owns
-        # the Speko agent that placed it (never the default company)
+        # the voice agent that placed it (never the default company).
+        # Covers both providers: Speko agent ids and Smallest agent ids.
         agent_company = {}
         for c in con.execute(
-                "SELECT id, speko_agent_id FROM companies").fetchall():
+                "SELECT id, speko_agent_id, smallest_agent_id"
+                " FROM companies").fetchall():
             if c["speko_agent_id"]:
                 agent_company[c["speko_agent_id"]] = c["id"]
+            if c["smallest_agent_id"]:
+                agent_company[c["smallest_agent_id"]] = c["id"]
         con.close()
         skipped = _skip_ids()
         todo = [s for s in sessions
@@ -563,119 +715,9 @@ async def refresh_calls_from_speko():
                     continue
                 if kind != "ok" or not p:
                     continue
-                # resolve the true company for this call:
-                # 1) lead_id stamped in dial metadata, 2) agent->company map,
-                # 3) phone match across all companies, 4) default fallback
-                lead, cid = None, ""
-                if p.get("meta_lead_id"):
-                    r = con.execute(
-                        f"SELECT * FROM leads WHERE id={Q}",
-                        (p["meta_lead_id"],)).fetchone()
-                    if r:
-                        lead, cid = dict(r), r["company_id"] or ""
-                if not lead and p.get("agent_id") in agent_company:
-                    cid = agent_company[p["agent_id"]]
-                    lead = lead_by_phone(p["to"], cid)
-                if not lead:
-                    lead, cid = lead_by_phone_any(p["to"])
-                if not cid:
-                    cid = fallback_company
-                an = p["analysis"]
-                insert_call_ignore(
-                    con, id=sid, lead_id=lead["id"] if lead else None,
-                    to_number=p["to"], status=p["status"],
-                    started_at=p["started_at"],
-                    duration_seconds=p["duration"], demo=0)
-                con.execute(
-                    f"UPDATE calls SET company_id={Q}, outcome={Q},"
-                    f" summary={Q}, structured_json={Q}, transcript={Q},"
-                    f" cost_usd={Q}, has_recording={Q}, to_number={Q},"
-                    f" status={Q}, duration_seconds={Q}, usage_json={Q},"
-                    f" talk_ratio={Q}, objections_json={Q}, next_action={Q},"
-                    f" disposition={Q}, intent_verdict={Q},"
-                    f" intent_confidence={Q}, campaign_id={Q},"
-                    f" quality_flags={Q} WHERE id={Q}",
-                    (cid, p["outcome"], p["summary"],
-                     p["structured"], p["transcript"], p["cost"],
-                     p["has_recording"], p["to"], p["status"],
-                     p["duration"], p["usage"], an["talk_ratio"],
-                     json.dumps(an["objections"]), an["next_action"],
-                     an["disposition"], an["intent"],
-                     an["intent_confidence"], p["campaign_id"],
-                     json.dumps(p["quality_flags"]), sid),
-                )
-                lid = lead["id"] if lead else None
-                if lid:
-                    # keep the stored score fresh so lists/kanban match the
-                    # drawer (previously lists always showed 0)
-                    lrow = con.execute(
-                        f"SELECT * FROM leads WHERE id={Q}",
-                        (lid,)).fetchone()
-                    lcalls = [dict(x) for x in con.execute(
-                        f"SELECT duration_seconds FROM calls"
-                        f" WHERE lead_id={Q}", (lid,)).fetchall()]
-                    score = lead_score(dict(lrow), lcalls)
-                    con.execute(
-                        f"UPDATE leads SET last_activity_at={Q}, score={Q}"
-                        f" WHERE id={Q}", (now_iso(), score, lid))
-                    if an["disposition"] == "dnc":
-                        # prospect said do-not-call: suppress immediately,
-                        # don't wait for a human to tap the disposition
-                        con.execute(f"UPDATE leads SET dnc=1 WHERE id={Q}",
-                                    (lid,))
-                        log_activity_inline(
-                            con, cid, lid, "note",
-                            "Auto-suppressed (DNC)",
-                            "Prospect asked not to be called again.")
-                    elif an["intent"] == "callback":
-                        # prospect asked for a callback: make sure there's
-                        # an open task so it can't slip through
-                        ex = con.execute(
-                            f"SELECT id FROM tasks WHERE lead_id={Q}"
-                            f" AND done=0 AND kind='callback' LIMIT 1",
-                            (lid,)).fetchone()
-                        if not ex:
-                            tid = f"task-{uuid.uuid4().hex[:12]}"
-                            due = (datetime.now(timezone.utc)
-                                   + timedelta(days=1)).isoformat()
-                            nm = (lead.get("name") or p["to"]).strip()
-                            con.execute(
-                                f"INSERT INTO tasks (id, company_id, lead_id,"
-                                f" kind, title, due_at, created_at)"
-                                f" VALUES ({Q},{Q},{Q},{Q},{Q},{Q},{Q})",
-                                (tid, cid, lid, "callback",
-                                 f"Call back {nm}", due, now_iso()))
-                            log_activity_inline(
-                                con, cid, lid, "task",
-                                "Callback task created",
-                                "Prospect asked for a callback on the call.")
-                    # post-call WhatsApp follow-up, once per call, only
-                    # for dashboard-placed outbound (manual + auto-dial)
-                    # campaign bookkeeping first so the WhatsApp variant
-                    # knows the kind (review link / payment amount)
-                    camp = None
-                    if p.get("campaign_id"):
-                        camp = _campaign_ctx(con, p["campaign_id"], lid)
-                        if camp:
-                            con.execute(
-                                f"UPDATE campaign_leads SET status='done',"
-                                f" called_at={Q} WHERE campaign_id={Q}"
-                                f" AND lead_id={Q}",
-                                (now_iso(), p["campaign_id"], lid))
-                            con.execute(
-                                f"UPDATE campaigns SET"
-                                f" done_count=done_count+1 WHERE id={Q}",
-                                (p["campaign_id"],))
-                            if an["intent"] in ("buying", "callback",
-                                                "curious"):
-                                con.execute(
-                                    f"UPDATE campaigns SET interested_count="
-                                    f"interested_count+1 WHERE id={Q}",
-                                    (p["campaign_id"],))
-                    if p.get("dial_source") == "dashboard_manual":
-                        await maybe_whatsapp_followup(
-                            con, cid, sid, lead, p, camp)
-                new += 1
+                if await _persist_synced_call(con, sid, p, fallback_company,
+                                              agent_company, "speko"):
+                    new += 1
             con.commit()
         finally:
             con.close()
@@ -687,6 +729,107 @@ async def refresh_calls_from_speko():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
     finally:
         sync_running = False
+
+
+async def refresh_calls_from_smallest():
+    """Background sync: new Smallest conversations only.
+
+    Mirrors refresh_calls_from_speko(): per-company agent, new ids only,
+    same enrichment + analysis + bookkeeping via _persist_synced_call,
+    stored with provider='smallest'. Read-only against the Smallest API.
+    """
+    if DEMO_MODE:
+        return {"skipped": True}
+    con = db()
+    comps = [dict(r) for r in con.execute(
+        "SELECT id, smallest_api_key, smallest_agent_id FROM companies"
+        " WHERE smallest_api_key <> '' AND smallest_agent_id <> ''"
+    ).fetchall()]
+    known = {row["id"] for row in
+             con.execute("SELECT id FROM calls").fetchall()}
+    agent_company = {}
+    for c in con.execute(
+            "SELECT id, speko_agent_id, smallest_agent_id"
+            " FROM companies").fetchall():
+        if c["speko_agent_id"]:
+            agent_company[c["speko_agent_id"]] = c["id"]
+        if c["smallest_agent_id"]:
+            agent_company[c["smallest_agent_id"]] = c["id"]
+    con.close()
+    if not comps:
+        return {"skipped": True}
+    comp0 = get_company(DEFAULT_COMPANY) or {}
+    fallback_company = comp0.get("id") or DEFAULT_COMPANY
+    total_new = 0
+    for comp in comps:
+        cid, key = comp["id"], comp["smallest_api_key"]
+        agent_id = comp["smallest_agent_id"]
+        try:
+            logs = await asyncio.to_thread(
+                smallest_atoms.list_calls, key, agent_id, 100)
+        except SmallestError:
+            continue
+        except Exception:
+            continue
+        todo = [x for x in logs
+                if x.get("id") and x["id"] not in known]
+        if not todo:
+            continue
+        con = db()
+        try:
+            for log in todo:
+                sid = log["id"]
+                try:
+                    det = await asyncio.to_thread(
+                        smallest_atoms.get_call, key, sid)
+                except Exception:
+                    continue
+                lines = det.get("transcript") or []
+                variables = det.get("variables") or log.get("variables") or {}
+                status = det.get("status") or log.get("status") or ""
+                reason = (det.get("disconnection_reason")
+                          or log.get("disconnection_reason") or "")
+                dur = det.get("duration") or log.get("duration") or 0
+                outcome = (reason or status
+                           or ("connected" if (dur or 0) > 0 else "unknown"))
+                analysis = analyze_call(outcome, "", lines, {})
+                p = {
+                    "to": det.get("to") or log.get("to") or "",
+                    "company_id": cid,
+                    "agent_id": (det.get("agent_id") or log.get("agent_id")
+                                 or agent_id),
+                    "meta_lead_id": variables.get("lead_id") or "",
+                    "status": status,
+                    "started_at": (det.get("started_at")
+                                   or log.get("started_at") or ""),
+                    "duration": dur,
+                    "outcome": outcome,
+                    "summary": "",
+                    "structured": json.dumps({}),
+                    "transcript": json.dumps(lines, ensure_ascii=False),
+                    # Smallest bills in credits; per-call USD cost is not
+                    # exposed, so keep cost_usd at 0 rather than store a
+                    # number in an unknown unit.
+                    "cost": 0,
+                    "has_recording": 1 if det.get("recording_url") else 0,
+                    "usage": "[]",
+                    "analysis": analysis,
+                    "dial_source": variables.get("source") or "",
+                    "campaign_id": variables.get("campaign_id") or "",
+                    "campaign_kind": variables.get("campaign_kind") or "",
+                    "quality_flags": scan_quality(lines, analysis, dur or 0),
+                }
+                if await _persist_synced_call(con, sid, p, cid,
+                                              agent_company, "smallest"):
+                    total_new += 1
+                    known.add(sid)
+            con.commit()
+        finally:
+            con.close()
+    kv_set("last_sync_smallest", now_iso())
+    kv_set("last_sync_smallest_new", str(total_new))
+    return {"new": total_new}
+
 
 # ------------------------------------------------- call analysis ------
 # Speko's report gives us summary / outcome / structured_data. On top of
@@ -971,6 +1114,46 @@ async def refresh_billing_cache(force=False):
         return None
 
 
+async def refresh_smallest_billing_cache(company_id="", force=False):
+    """Smallest prepaid credit balance, cached like the Speko billing
+    cache. Uses the company's own Smallest key (default company first)."""
+    try:
+        ts = float(kv_get("smallest_billing_cache_ts") or 0)
+    except Exception:
+        ts = 0
+    if not force and time.time() - ts < BILLING_CACHE_S:
+        try:
+            return json.loads(kv_get("smallest_billing_cache") or "null")
+        except Exception:
+            pass
+    comp = get_company(company_id or DEFAULT_COMPANY) or {}
+    key = comp.get("smallest_api_key") or ""
+    if not key and not company_id:
+        # fall back to any company that has a Smallest key configured
+        con = db()
+        r = con.execute(
+            "SELECT smallest_api_key FROM companies"
+            " WHERE smallest_api_key <> '' LIMIT 1").fetchone()
+        con.close()
+        key = (r["smallest_api_key"] if r else "") or ""
+    if DEMO_MODE or not key:
+        return None
+    try:
+        bal = await asyncio.to_thread(smallest_atoms.get_balance, key)
+        out = {
+            "credit_balance": bal["credit_balance"],
+            "credit_balance_inr": round(
+                bal["credit_balance"] * USD_INR, 2),
+            "plan_id": bal["plan_id"],
+            "fetched_at": now_iso(),
+        }
+        kv_set("smallest_billing_cache", json.dumps(out))
+        kv_set("smallest_billing_cache_ts", str(time.time()))
+        return out
+    except Exception:
+        return None
+
+
 async def get_agent_info(company):
     agent_id = (company or {}).get("speko_agent_id") or ""
     if DEMO_MODE or not agent_id:
@@ -1082,7 +1265,46 @@ def companies():
     con = db()
     rows = con.execute("SELECT * FROM companies ORDER BY created_at").fetchall()
     con.close()
-    return [dict(r) for r in rows]
+    # secrets (provider API keys/tokens) never leave the server
+    return [_public_company(dict(r)) for r in rows]
+
+
+@app.patch("/api/companies/{target_id}")
+async def update_company(target_id: str, req: Request):
+    """Operator-only: flip client view (hide_integrations) or set the
+    client billing rate for a company. Gated on the CURRENT company
+    BEFORE applying the update — a client company can never un-hide
+    itself or change its own rate."""
+    _assert_integrations_visible(_cid(req))
+    body = await req.json()
+    sets, vals = [], []
+    if "hide_integrations" in body:
+        sets.append(f"hide_integrations={Q}")
+        vals.append(1 if body["hide_integrations"] else 0)
+    if "rate_per_min" in body:
+        try:
+            rate = float(body["rate_per_min"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "rate_per_min must be a number")
+        if rate < 0 or rate > 10000:
+            raise HTTPException(400, "rate_per_min out of range")
+        sets.append(f"rate_per_min={Q}")
+        vals.append(rate)
+    if not sets:
+        raise HTTPException(400, "nothing to update")
+    con = db()
+    row = con.execute(f"SELECT id FROM companies WHERE id={Q}",
+                      (target_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "company not found")
+    con.execute(f"UPDATE companies SET {', '.join(sets)} WHERE id={Q}",
+                (*vals, target_id))
+    con.commit()
+    out = con.execute(f"SELECT * FROM companies WHERE id={Q}",
+                      (target_id,)).fetchone()
+    con.close()
+    return _public_company(dict(out))
 
 
 def _cid(req: Request, body_company=""):
@@ -1717,6 +1939,73 @@ async def maybe_whatsapp_followup(con, cid, call_id, lead, p, camp=None):
             pass
 
 
+async def dial_now_smallest(company_id, phone, lead_id=None, name="",
+                           lead=None):
+    """Place a manual outbound call via Smallest Atoms.
+
+    Returns (ok, message). Only ever invoked from an explicit user dial
+    action (dashboard Call button / dialer with provider="smallest").
+    The agent prompt lives on the Smallest agent itself; per-call
+    personalization travels in ``variables``.
+    """
+    comp = get_company(company_id) or {}
+    key = comp.get("smallest_api_key") or ""
+    agent_id = comp.get("smallest_agent_id") or ""
+    from_number = comp.get("smallest_from_number") or ""
+    if DEMO_MODE:
+        return True, f"(demo) call queued to {phone}"
+    if not key:
+        return False, "no Smallest API key configured for this company"
+    if not agent_id:
+        return False, "no Smallest agent selected for this company"
+    if not from_number:
+        return False, "no Smallest caller ID selected for this company"
+    to = phone if phone.startswith("+") else f"+91{digits(phone)[-10:]}"
+    lead_row = dict(lead) if lead else {}
+    if not lead_row.get("name"):
+        lead_row["name"] = name
+    variables = {"lead_id": str(lead_id or ""),
+                 "name": lead_row.get("name") or "",
+                 "city": lead_row.get("city") or "",
+                 "source": "dashboard_manual",
+                 "company_id": company_id}
+    # match the E.164 to Smallest's product id so the outbound request
+    # carries both identifiers the API accepts (from_number per the
+    # developer docs, fromProductId per the official SDK)
+    from_product_id = ""
+    try:
+        numbers = await asyncio.to_thread(smallest_atoms.list_numbers, key)
+        for n in numbers:
+            if n.get("e164") == from_number and n.get("product_id"):
+                from_product_id = n["product_id"]
+                break
+    except SmallestError:
+        pass
+    try:
+        res = await asyncio.to_thread(
+            smallest_atoms.start_outbound_call,
+            key, agent_id, to, from_number,
+            from_product_id or None, variables)
+    except SmallestError as e:
+        return False, f"smallest: {e}"
+    except Exception as e:
+        return False, f"dial failed: {e}"
+    sid = (res.get("conversation_id")
+           or f"manual-{uuid.uuid4().hex[:8]}")
+    con = db()
+    insert_call_ignore(con, id=sid, lead_id=lead_id, to_number=to,
+                       status="dialing", started_at=now_iso(),
+                       duration_seconds=0, demo=0)
+    con.execute(f"UPDATE calls SET company_id={Q}, provider={Q}"
+                f" WHERE id={Q}", (company_id, "smallest", sid))
+    con.commit()
+    con.close()
+    if lead_id:
+        log_activity(company_id, lead_id, "call",
+                     f"Manual call placed to {to} (Smallest)", "")
+    return True, f"calling {to}…"
+
+
 def dial_now(company_id, phone, lead_id=None, name="", lead=None,
              campaign_id=None, campaign_kind=None, campaign_params=None):
     """Place a manual outbound call via Speko. Returns (ok, message)."""
@@ -1784,11 +2073,14 @@ def dial_now(company_id, phone, lead_id=None, name="", lead=None,
 @app.post("/api/dial")
 async def manual_dial(req: Request):
     """Manual call trigger from the dashboard (per-lead Call button or
-    the dialer). Guards DNC; every dial is logged."""
+    the dialer). Guards DNC; every dial is logged. ``provider`` selects
+    "speko" (default) or "smallest"; Smallest needs a key + agent +
+    caller ID saved on the company's Integrations page."""
     body = await req.json()
     cid = _cid(req, body.get("company", ""))
     lead_id = body.get("lead_id")
     phone = (body.get("to") or "").strip()
+    provider = str(body.get("provider") or "speko").strip().lower()
     name = ""
     lead_ctx = None
     if lead_id:
@@ -1809,7 +2101,11 @@ async def manual_dial(req: Request):
                     "source": row["source"] or ""}
     if len(digits(phone)) < 10:
         raise HTTPException(400, "valid phone required")
-    ok, msg = dial_now(cid, phone, lead_id, name, lead=lead_ctx)
+    if provider == "smallest":
+        ok, msg = await dial_now_smallest(cid, phone, lead_id, name,
+                                          lead_ctx)
+    else:
+        ok, msg = dial_now(cid, phone, lead_id, name, lead=lead_ctx)
     if not ok:
         raise HTTPException(502, msg)
     return {"ok": True, "message": msg}
@@ -1959,13 +2255,18 @@ def recording(call_id: str):
 
 # ------------------------------------------------------ misc api ------
 @app.get("/api/billing")
-async def billing():
+async def billing(req: Request):
+    # Operator wallet — provider balances/costs are never client-visible.
+    # Client companies (hide_integrations=1) get the honest bill from
+    # /api/billing/client instead.
+    _assert_integrations_visible(_cid(req))
     if DEMO_MODE or not SPEKO_API_KEY:
         return {
             "demo": True,
             "balance_usd": 142.0, "balance_inr": round(142.0 * USD_INR, 2),
             "total_cost_usd": 8.5, "total_cost_inr": round(8.5 * USD_INR, 2),
             "total_sessions": 8, "total_minutes": 6,
+            "smallest": None,
             "breakdown": [
                 {"provider": "speko", "metric": "session_seconds",
                  "label": "Phone line", "quantity": 360,
@@ -1979,9 +2280,41 @@ async def billing():
             ],
         }
     cached = await refresh_billing_cache()
-    if cached:
-        return cached
-    raise HTTPException(502, "billing unavailable")
+    if not cached:
+        raise HTTPException(502, "billing unavailable")
+    try:
+        cached["smallest"] = await refresh_smallest_billing_cache()
+    except Exception:
+        cached["smallest"] = None
+    return cached
+
+
+@app.get("/api/billing/client")
+def client_billing(req: Request):
+    """Honest client bill: real synced minutes x the company's rate_per_min.
+
+    Minutes come only from the calls table (BOTH providers, no provider
+    filter) for the current calendar month. Nothing is invented — no
+    minutes, no balances, no estimates. Provider wallet/cost data is
+    never included here; it stays operator-only on /api/billing."""
+    cid = _cid(req)
+    comp = get_company(cid) or {}
+    rate = comp.get("rate_per_min") or 15
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    con = db()
+    row = con.execute(
+        f"SELECT COALESCE(SUM(duration_seconds),0) s, COUNT(*) n FROM calls"
+        f" WHERE company_id={Q} AND substr(started_at,1,7)={Q}",
+        (cid, month)).fetchone()
+    con.close()
+    minutes = round((row["s"] or 0) / 60, 2)
+    return {
+        "month": month,
+        "minutes_this_month": minutes,
+        "calls_this_month": row["n"] or 0,
+        "rate_per_min": rate,
+        "amount_due_inr": round(minutes * rate, 2),
+    }
 
 
 @app.get("/api/agent")
@@ -2130,6 +2463,7 @@ async def trigger_sync():
     if sync_running:
         return {"started": False, "running": True}
     asyncio.create_task(refresh_calls_from_speko())
+    asyncio.create_task(refresh_calls_from_smallest())
     asyncio.create_task(refresh_billing_cache(force=True))
     return {"started": True}
 
@@ -2332,10 +2666,21 @@ async def fb_lead(req: Request):
     return {"ok": True, "leads": ids}
 
 
+# ------------------------------------------------- integrations -----
+# Client companies (hide_integrations=1) must never see provider wiring:
+# API keys, balances, agent configs are operator-only. The frontend hides
+# the Integrations view; these 403s are the defense-in-depth backend gate.
+def _assert_integrations_visible(cid: str):
+    comp = get_company(cid) or {}
+    if comp.get("hide_integrations"):
+        raise HTTPException(403, "integrations hidden for this company")
+
+
 @app.get("/api/integrations/meta")
 def meta_settings(req: Request):
     """Meta Lead Ads wiring: webhook URL, token status, auto-dial + cap."""
     cid = _cid(req)
+    _assert_integrations_visible(cid)
     comp = get_company(cid) or {}
     host = str(req.base_url).rstrip("/")
     return {
@@ -2353,6 +2698,7 @@ def meta_settings(req: Request):
 async def meta_settings_update(req: Request):
     """Save Page token (enables lead enrichment), auto-dial toggle, daily cap."""
     cid = _cid(req)
+    _assert_integrations_visible(cid)
     body = await req.json()
     sets, vals = [], []
     if "page_token" in body and isinstance(body["page_token"], str):
@@ -2388,6 +2734,7 @@ async def meta_settings_update(req: Request):
 def meta_activity(req: Request):
     """Recent auto-dial events for the Meta integration view."""
     cid = _cid(req)
+    _assert_integrations_visible(cid)
     con = db()
     rows = con.execute(
         f"SELECT a.created_at, a.title, a.detail, l.name"
@@ -2398,10 +2745,111 @@ def meta_activity(req: Request):
     return {"items": [dict(r) for r in rows]}
 
 
+@app.get("/api/integrations/smallest")
+def smallest_settings(req: Request):
+    """Smallest Atoms wiring: API key status, agents, rented numbers.
+
+    Read-only probes against Smallest so the owner can pick an agent
+    and caller ID without touching the Smallest console."""
+    cid = _cid(req)
+    _assert_integrations_visible(cid)
+    comp = get_company(cid) or {}
+    key = comp.get("smallest_api_key") or ""
+    out = {
+        "connected": bool(key),
+        "key_set": bool(key),
+        "agent_id": comp.get("smallest_agent_id") or "",
+        "from_number": comp.get("smallest_from_number") or "",
+        "agents": [], "numbers": [], "balance": None, "error": "",
+        "last_sync": kv_get("last_sync_smallest") or "",
+        "last_sync_new": kv_get("last_sync_smallest_new") or "0",
+    }
+    if not key or DEMO_MODE:
+        return out
+    try:
+        out["agents"] = smallest_atoms.list_agents(key)
+        out["numbers"] = smallest_atoms.list_numbers(key)
+        try:
+            bal = smallest_atoms.get_balance(key)
+            out["balance"] = {
+                "credit_balance": bal["credit_balance"],
+                "credit_balance_inr": round(
+                    bal["credit_balance"] * USD_INR, 2),
+            }
+        except SmallestError:
+            pass
+    except SmallestError as e:
+        out["error"] = str(e)[:200]
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return out
+
+
+@app.patch("/api/integrations/smallest")
+async def smallest_settings_update(req: Request):
+    """Save the per-company Smallest API key, agent id and caller ID."""
+    cid = _cid(req)
+    _assert_integrations_visible(cid)
+    body = await req.json()
+    sets, vals = [], []
+    if "api_key" in body and isinstance(body["api_key"], str):
+        key = body["api_key"].strip()
+        if key:
+            # validate before saving: wrong keys surface here, not later
+            try:
+                smallest_atoms.list_agents(key)
+            except SmallestError as e:
+                raise HTTPException(400, f"Smallest rejected the key: {e}")
+            except Exception as e:
+                raise HTTPException(
+                    502, f"could not reach Smallest: {type(e).__name__}")
+        sets.append(f"smallest_api_key={Q}")
+        vals.append(key)
+    if "agent_id" in body and isinstance(body["agent_id"], str):
+        sets.append(f"smallest_agent_id={Q}")
+        vals.append(body["agent_id"].strip())
+    if "from_number" in body and isinstance(body["from_number"], str):
+        sets.append(f"smallest_from_number={Q}")
+        vals.append(body["from_number"].strip())
+    if not sets:
+        raise HTTPException(400, "nothing to save")
+    vals.append(cid)
+    con = db()
+    con.execute(f"UPDATE companies SET {', '.join(sets)} WHERE id={Q}",
+                tuple(vals))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.post("/api/integrations/smallest/test")
+async def smallest_test(req: Request):
+    """Read-only connection test: list agents with the supplied key
+    (or the saved one). Never places a call."""
+    body = await req.json()
+    cid = _cid(req, body.get("company", ""))
+    _assert_integrations_visible(cid)
+    key = (body.get("api_key") or "").strip()
+    if not key:
+        comp = get_company(cid) or {}
+        key = comp.get("smallest_api_key") or ""
+    if not key:
+        raise HTTPException(400, "no Smallest API key configured")
+    try:
+        agents = smallest_atoms.list_agents(key)
+        numbers = smallest_atoms.list_numbers(key)
+    except SmallestError as e:
+        raise HTTPException(400, str(e)[:200])
+    except Exception as e:
+        raise HTTPException(502, f"{type(e).__name__}: {str(e)[:120]}")
+    return {"ok": True, "agents": agents, "numbers": numbers}
+
+
 @app.get("/api/integrations/whatsapp")
 def wa_settings(req: Request):
     """WhatsApp Cloud API wiring for post-call follow-ups."""
     cid = _cid(req)
+    _assert_integrations_visible(cid)
     comp = get_company(cid) or {}
     return {
         "connected": bool(comp.get("wa_phone_number_id")
@@ -2420,6 +2868,7 @@ async def wa_settings_update(req: Request):
     is given, so misconfiguration surfaces immediately instead of on
     the next real call."""
     cid = _cid(req)
+    _assert_integrations_visible(cid)
     body = await req.json()
     sets, vals = [], []
     if "phone_number_id" in body and isinstance(body["phone_number_id"],

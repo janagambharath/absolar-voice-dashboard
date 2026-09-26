@@ -486,6 +486,11 @@ ol.steps b{color:var(--ink);font-weight:600}
       <input class="ctl" id="dialNum" style="width:100%" placeholder="+91 …" inputmode="tel"></div>
     <div class="frow"><label class="fld">Lead (optional)</label>
       <select class="ctl" id="dialLead" style="width:100%"><option value="">— none —</option></select></div>
+    <div class="frow"><label class="fld">Call provider</label>
+      <select class="ctl" id="dialProvider" style="width:100%">
+        <option value="speko">Speko — default</option>
+        <option value="smallest">Smallest Atoms — needs agent + caller ID saved in Integrations</option>
+      </select></div>
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('dialModal')">Cancel</button>
       <button class="btn primary" id="dialGo" onclick="doDial()"><i data-ic="phone"></i>Call now</button>
@@ -634,12 +639,21 @@ function setCompany(c){
   $('brandMark').style.background=c.primary_color||'#15803D';$('mBrandMark').style.background=c.primary_color||'#15803D';
   $('brandMark').title=c.name+' — switch company';$('mBrandMark').title=c.name+' — switch company';
   localStorage.setItem('crm_company',c.id);
+  // client companies (hide_integrations=1): the Integrations nav must not
+  // exist for them — provider keys/balances are operator-only
+  const hideInt=!!c.hide_integrations;
+  document.querySelectorAll('#sideNav .navitem[data-v="integrations"],#bnav button[data-v="integrations"]')
+    .forEach(el=>{el.style.display=hideInt?'none':''});
+  if(hideInt&&typeof VIEW!=='undefined'&&VIEW==='integrations')go('dash');
 }
 function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
 /* ================= router ================= */
 const VIEWS={dash:renderDash,pipe:renderPipe,leads:renderLeads,calls:renderCalls,campaigns:renderCampaigns,agent:renderAgent,tasks:renderTasks,billing:renderBilling,integrations:renderIntegrations};
-function go(v){VIEW=v;
+function go(v){
+  // block the Integrations view outright for client companies
+  if(v==='integrations'&&CO&&CO.hide_integrations)v='dash';
+  VIEW=v;
   document.querySelectorAll('#sideNav .navitem').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   (VIEWS[v]||renderDash)();
@@ -1235,6 +1249,8 @@ async function renderIntegrations(){
      <li><b>Subscribe the webhook</b> — in developers.facebook.com → your app → Webhooks, add the callback URL shown above with the verify token, then subscribe your Page to the <span class="mono">leadgen</span> field.</li>
      <li><b>Test it</b> — use Meta's lead-ads testing tool or submit a real test lead. It should appear under Leads within seconds, and Priya calls it instantly when auto-dial is on.</li>
    </ol></div></div>
+   <div class="card" style="margin-bottom:14px"><div class="chead"><div class="ctitle">Smallest Atoms <span class="small">— alt voice provider</span></div><span id="smStat"></span></div>
+   <div class="cbody" id="smBody"><div class="sk" style="height:220px"></div></div></div>
    <div class="card"><div class="chead"><div class="ctitle">Auto-dial activity</div></div>
    <div class="cbody" id="metaActs"><div class="sk" style="height:80px"></div></div></div>`;
   try{
@@ -1285,6 +1301,29 @@ async function renderIntegrations(){
       </div>
       <div class="small" style="margin-top:8px">WhatsApp charges per template message (roughly ₹0.30–0.80). The token is stored in your dashboard's own database and used only for these follow-ups.</div>`;
   }catch(e){$('waBody').innerHTML='<div class="small">Could not load WhatsApp settings.</div>'}
+  try{
+    const s=await api(cq('/api/integrations/smallest'));
+    $('smStat').innerHTML=s.connected?'<span class="pill p-green">Connected</span>':'<span class="pill p-grey">Not connected</span>';
+    const agOpts=(s.agents||[]).map(a=>`<option value="${esc(a.id)}" ${a.id===s.agent_id?'selected':''}>${esc(a.name||a.id)}${a.language?` (${esc(a.language)})`:''}</option>`).join('');
+    const numOpts=(s.numbers||[]).map(n=>`<option value="${esc(n.e164)}" ${n.e164===s.from_number?'selected':''}>${esc(n.e164)}${n.country?` · ${esc(n.country)}`:''}</option>`).join('');
+    $('smBody').innerHTML=`
+      <div class="arow"><span class="ak">Credit balance</span><span class="av">${s.balance?`<b>${s.balance.credit_balance}</b> credits <span class="small">≈ ₹${s.balance.credit_balance_inr}</span>`:'<span class="small">—</span>'}</span></div>
+      <div class="arow"><span class="ak">Calls synced</span><span class="av"><b>${esc(s.last_sync_new||'0')}</b> new <span class="small">· last ${esc(s.last_sync||'never')}</span></span></div>
+      ${s.error?`<div class="small" style="color:var(--red)">Smallest error: ${esc(s.error)}</div>`:''}
+      <div class="frow"><label class="fld">API key — from smallest.ai → API keys. Validated before saving.</label>
+        <input id="smKey" type="password" class="ctl mono" style="width:100%" placeholder="${s.key_set?'Saved — paste a new key to replace it':'Paste Smallest API key'}" autocomplete="off"></div>
+      <div class="grid2" style="gap:12px">
+        <div class="frow"><label class="fld">Agent — the voice agent the dashboard dials through</label>
+          <select id="smAgent" class="ctl" style="width:100%">${s.agent_id&&!agOpts?`<option value="${esc(s.agent_id)}" selected>${esc(s.agent_id)}</option>`:''}${agOpts||'<option value="">Connect a key first</option>'}</select></div>
+        <div class="frow"><label class="fld">Caller ID — rented number shown to the lead</label>
+          <select id="smNum" class="ctl" style="width:100%">${s.from_number&&!numOpts?`<option value="${esc(s.from_number)}" selected>${esc(s.from_number)}</option>`:''}${numOpts||'<option value="">Connect a key first</option>'}</select></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn primary" onclick="saveSmallest()">${ic('check',14)} Save</button>
+        <button class="btn" onclick="testSmallest()">${ic('refresh',14)} Test connection</button>
+      </div>
+      <div class="small" style="margin-top:8px">The key is stored in your dashboard's own database and used only to sync calls and place manual dials. Nothing rents numbers or places calls on its own. Manual dials from the Call button go through Speko unless you pick Smallest in the dialer.</div>`;
+  }catch(e){$('smBody').innerHTML='<div class="small">Could not load Smallest settings.</div>'}
 }
 async function saveWa(){
   const body={enabled:$('waEn').checked};
@@ -1298,6 +1337,23 @@ async function saveWa(){
     toast(r&&r.test?(r.test.ok?'Saved — test message sent, check WhatsApp':'Saved — test FAILED: '+r.test.detail):'WhatsApp integration saved');
     renderIntegrations();
   }catch(e){toast('Save failed: '+e.message)}
+}
+async function saveSmallest(){
+  const body={};
+  const k=$('smKey').value.trim();if(k)body.api_key=k;
+  const a=$('smAgent').value;if(a)body.agent_id=a;
+  const n=$('smNum').value;if(n)body.from_number=n;
+  if(!Object.keys(body).length){toast('Nothing to save');return}
+  try{
+    await api(cq('/api/integrations/smallest'),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('Smallest integration saved');renderIntegrations();
+  }catch(e){toast('Save failed: '+e.message)}
+}
+async function testSmallest(){
+  try{
+    const r=await api(cq('/api/integrations/smallest/test'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    toast(`Smallest OK — ${r.agents.length} agent(s), ${r.numbers.length} number(s)`);
+  }catch(e){toast('Test failed: '+e.message)}
 }
 async function saveMeta(){
   const body={autodial:$('metaAuto').checked,daily_cap:parseInt($('metaCap').value,10)||50};
@@ -1313,16 +1369,45 @@ async function saveMeta(){
 }
 
 /* ================= billing ================= */
+/* ================= billing ================= */
+const inr2=n=>'₹'+Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:0,maximumFractionDigits:2});
+// Honest client bill card: real synced minutes x the company's rate.
+// Same card the client sees; operators see it alongside the wallet.
+function clientBillCard(c){
+  const m=(c.month||'').split('-');
+  const mlabel=m.length===2?new Date(+m[0],+m[1]-1,1).toLocaleString('en',{month:'long',year:'numeric'}):'this month';
+  return `<div class="card"><div class="chead"><div class="ctitle">Client bill — ${esc(mlabel)}</div><span class="small" style="margin-left:auto">${c.calls_this_month||0} calls</span></div><div class="cbody">
+    <div class="arow"><span class="ak">Call minutes</span><span class="av"><b>${c.minutes_this_month}</b> min</span></div>
+    <div class="arow"><span class="ak">Rate</span><span class="av">${inr2(c.rate_per_min)}/min</span></div>
+    <div class="arow" style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px"><span class="ak"><b>Amount due</b></span><span class="av"><b>${inr2(c.amount_due_inr)}</b></span></div>
+    <div class="small">Billed on real synced call minutes — no estimates.</div></div></div>`;
+}
 async function renderBilling(){
   const pg=$('page');
+  const clientMode=!!(CO&&CO.hide_integrations);
+  if(clientMode){
+    // CLIENT VIEW: only the bill. No wallet, no cost split, no credits.
+    pg.innerHTML=phead('Manage','Billing',`<span>Usage for ${esc(CO.name)}</span>`,'')+
+    `<div class="section" id="cBillWrap"><div class="card"><div class="cbody"><div class="sk" style="height:120px"></div></div></div></div>`;
+    hydrateIcons(pg);
+    try{
+      const c=await api(cq('/api/billing/client'));
+      $('cBillWrap').innerHTML=clientBillCard(c);
+    }catch(e){$('cBillWrap').innerHTML=`<div class="empty"><div class="et">Billing unavailable.</div><p>${esc(e.message)}</p></div>`}
+    return;
+  }
+  // OPERATOR VIEW: provider wallet + cost cards, plus the client-bill card
+  // so the operator sees exactly what the client will be charged.
   pg.innerHTML=phead('Manage','Billing',`<span>Speko usage for ${esc(CO.name)}</span>`,
     `<button class="btn sm" onclick="refreshAll()">${ic('refresh',14)} Refresh</button>`)+
   `<div class="stats" id="bStats"><div class="stat"><div class="sk" style="height:118px"></div></div></div>
    <div class="grid2"><div class="card"><div class="chead"><div class="ctitle">Cost by provider</div></div><div id="bProv"></div></div>
-   <div class="card"><div class="chead"><div class="ctitle">Spend — last 14 days</div></div><div id="bChart"></div></div></div>`;
+   <div class="card"><div class="chead"><div class="ctitle">Spend — last 14 days</div></div><div id="bChart"></div></div></div>
+   <div id="bSmall"></div>
+   <div id="bClient" style="margin-top:14px"></div>`;
   hydrateIcons(pg);
   try{
-    const [b,days]=await Promise.all([api('/api/billing'),api(cq('/api/usage/daily'))]);
+    const [b,days,cb]=await Promise.all([api('/api/billing'),api(cq('/api/usage/daily')),api(cq('/api/billing/client')).catch(()=>null)]);
     $('bStats').innerHTML=[
       ['Balance',inr(b.balance_inr),'flat',b.demo?'demo data':'live speko'],
       ['Total spend (all time)',inr(b.total_cost_inr),'flat',b.total_sessions+' sessions'],
@@ -1334,6 +1419,11 @@ async function renderBilling(){
       <div class="small"><span class="mono">${x.provider}</span> · ${esc(x.metric||'')}</div></div>
       <div class="r"><div class="mono" style="font-weight:700">${inr(x.cost_inr)}</div><div class="small">${Number(x.quantity||0).toLocaleString('en-IN')} units</div></div></div>`).join('')
       ||'<div class="small">No breakdown.</div>';
+    if(b.smallest)$('bSmall').innerHTML=`<div class="card" style="margin-top:14px"><div class="chead"><div class="ctitle">Smallest Atoms credits</div></div><div class="cbody">
+      <div class="arow"><span class="ak">Balance</span><span class="av"><b>${b.smallest.credit_balance}</b> credits <span class="small">≈ ${inr(b.smallest.credit_balance_inr)}</span></span></div>
+      <div class="arow"><span class="ak">Plan</span><span class="av mono">${esc(b.smallest.plan_id||'—')}</span></div>
+      <div class="small">Smallest bills in credits per minute; per-call spend appears here once Smallest calls sync.</div></div></div>`;
+    if(cb)$('bClient').innerHTML=clientBillCard(cb);
     const mx=Math.max(...days.map(d=>d.cost_inr),1);
     $('bChart').innerHTML=`<div style="display:flex;align-items:flex-end;gap:6px;height:140px">`+
       days.map(d=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
@@ -1359,7 +1449,7 @@ async function doDial(){
   const num=$('dialNum').value.trim();if(num.replace(/\D/g,'').length<10){toast('Enter a valid phone number');return}
   $('dialGo').disabled=true;
   try{
-    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null})});
+    const r=await api(cq('/api/dial'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:num,lead_id:$('dialLead').value||null,provider:$('dialProvider')?$('dialProvider').value:'speko'})});
     closeModal('dialModal');toast(r.message||'Calling…');
     setTimeout(()=>{if(VIEW==='calls'||VIEW==='dash')go(VIEW)},2500);
   }catch(e){toast('Call failed: '+e.message)}
@@ -1376,13 +1466,26 @@ async function quickDial(leadId){
 /* ================= companies ================= */
 async function openCompanyModal(){
   const r=await api('/api/companies');COMPANIES=r;
+  // operator-only: the client-view toggle is rendered only while the
+  // CURRENT company still has integrations visible
+  const canToggle=!!(CO&&!CO.hide_integrations);
   $('coList').innerHTML=r.map(c=>`
     <div class="taskrow" style="cursor:pointer" onclick="switchCompany('${c.id}')">
       <div class="brandmark" style="background:${c.primary_color};width:28px;height:28px;font-size:12px">${esc(c.name.split(' ').map(w=>w[0]).join('').slice(0,2))}</div>
       <div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc(c.name)}</div>
       <div class="small mono">${esc(c.caller_id||'')}</div></div>
+      ${canToggle?`<button class="btn sm" title="Client view (hide Integrations + wallet)" onclick="event.stopPropagation();toggleClientView('${c.id}',${c.hide_integrations?1:0})" style="${c.hide_integrations?'border-color:var(--accent);color:var(--accent)':''}">${c.hide_integrations?'Client view: ON':'Client view'}</button>`:''}
       ${c.id===CO.id?ic('check',16):''}</div>`).join('');
   hydrateIcons($('coModal'));openModal('coModal');
+}
+async function toggleClientView(id,cur){
+  try{
+    await api(cq('/api/companies/'+id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({hide_integrations:cur?0:1})});
+    const r=await api('/api/companies');COMPANIES=r;
+    if(CO&&CO.id===id){const nc=r.find(c=>c.id===id);if(nc)setCompany(nc)}
+    openCompanyModal();
+    toast('Client view '+(cur?'off':'on'));
+  }catch(e){toast('Failed: '+e.message)}
 }
 function switchCompany(id){
   const c=COMPANIES.find(x=>x.id===id);if(!c)return;
