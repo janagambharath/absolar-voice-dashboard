@@ -1518,9 +1518,10 @@ async def admin_update_company(cid: str, req: Request):
                 (*vals, cid))
     con.commit()
     con.close()
-    if body.get("smallest_api_key") and not DEMO_MODE:
-        # fresh key just validated + saved: pull this company's Smallest
-        # history right away so the Calls tab fills without a manual sync
+    if not DEMO_MODE:
+        # every Company Edit save pulls fresh Smallest history — the sync
+        # itself only touches companies with a key + agent id, so this is
+        # safe even when nothing provider-related changed
         asyncio.create_task(refresh_calls_from_smallest())
     return {"ok": True}
 
