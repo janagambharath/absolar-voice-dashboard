@@ -18,8 +18,9 @@ What it does:
   - Instant page loads: everything served from the local DB; Smallest
     syncs in the background (new conversations only).
 
-Env: SPEKO_API_KEY, SPEKO_AGENT_ID, DEMO_MODE, AUTO_DIAL,
-     FB_VERIFY_TOKEN, DASH_USER / DASH_PASS, DB_PATH / DATABASE_URL.
+Env: DEMO_MODE, AUTO_DIAL, FB_VERIFY_TOKEN,
+     DASH_USER / DASH_PASS, DB_PATH / DATABASE_URL.
+     (SPEKO_API_KEY / SPEKO_AGENT_ID are legacy, unused.)
 """
 import asyncio
 import base64
@@ -259,7 +260,7 @@ def lead_by_phone(phone: str, company_id: str):
 def lead_by_phone_any(phone: str):
     """Match a dialed number against leads in ANY company.
 
-    Returns (lead_dict, company_id) or (None, ''). The Speko sync uses this
+    Returns (lead_dict, company_id) or (None, ''). The call sync uses this
     so Karthik's live-company calls are never misattributed to the demo co."""
     d = digits(phone)
     if len(d) < 10:
@@ -1329,7 +1330,6 @@ def health():
     except Exception as e:
         missing = [f"check failed: {e}"]
     return {"ok": True, "demo_mode": DEMO_MODE,
-            "speko_configured": bool(SPEKO_API_KEY),
             "auto_dial": AUTO_DIAL,
             "last_sync": kv_get("last_sync"),
             "version": 3,
@@ -1611,6 +1611,16 @@ def _cid(req: Request, body_company=""):
             or DEFAULT_COMPANY)
 
 
+def _owns(con, table, row_id, cid):
+    """True if the row belongs to cid. Guards ID-based endpoints against
+    cross-company access: a company login must never read or mutate another
+    company's leads, calls or tasks by guessing an ID."""
+    assert table in ("leads", "calls", "tasks"), table
+    r = con.execute(f"SELECT company_id FROM {table} WHERE id={Q}",
+                    (row_id,)).fetchone()
+    return bool(r) and (r["company_id"] or "") == (cid or "")
+
+
 @app.get("/api/kpis")
 def kpis(req: Request):
     """Owner's daily glance: funnel, rates, money, follow-ups, stale."""
@@ -1701,7 +1711,11 @@ def lead_list(req: Request):
 
 @app.get("/api/leads/{lead_id}")
 def lead_detail(lead_id: int, req: Request):
+    cid = _cid(req)
     con = db()
+    if not _owns(con, "leads", lead_id, cid):
+        con.close()
+        raise HTTPException(404, "lead not found")
     r = con.execute(f"SELECT * FROM leads WHERE id={Q}",
                     (lead_id,)).fetchone()
     if not r:
@@ -1791,7 +1805,11 @@ async def update_lead(lead_id: int, req: Request):
     sets.append(f"last_activity_at={Q}")
     vals.append(now_iso())
     vals.append(lead_id)
+    cid = _cid(req)
     con = db()
+    if not _owns(con, "leads", lead_id, cid):
+        con.close()
+        raise HTTPException(404, "lead not found")
     con.execute(f"UPDATE leads SET {', '.join(sets)} WHERE id={Q}", vals)
     row = con.execute(f"SELECT company_id FROM leads WHERE id={Q}",
                       (lead_id,)).fetchone()
@@ -1812,7 +1830,7 @@ async def move_stage(lead_id: int, req: Request):
     con = db()
     row = con.execute(f"SELECT company_id, stage FROM leads WHERE id={Q}",
                       (lead_id,)).fetchone()
-    if not row:
+    if not row or (row["company_id"] or "") != (_cid(req) or ""):
         con.close()
         raise HTTPException(404, "lead not found")
     vals = [stage, now_iso()]
@@ -1840,7 +1858,7 @@ async def add_note(lead_id: int, req: Request):
     con = db()
     row = con.execute(f"SELECT company_id FROM leads WHERE id={Q}",
                       (lead_id,)).fetchone()
-    if not row:
+    if not row or (row["company_id"] or "") != (_cid(req) or ""):
         con.close()
         raise HTTPException(404, "lead not found")
     nid = f"note-{uuid.uuid4().hex[:12]}"
@@ -1902,7 +1920,11 @@ async def add_task(req: Request):
 async def task_done(task_id: str, req: Request):
     body = await req.json() if req.headers.get("content-type") else {}
     done = 0 if body.get("done") is False else 1
+    cid = _cid(req)
     con = db()
+    if not _owns(con, "tasks", task_id, cid):
+        con.close()
+        raise HTTPException(404, "task not found")
     con.execute(f"UPDATE tasks SET done={Q} WHERE id={Q}", (done, task_id))
     con.commit()
     con.close()
@@ -2348,10 +2370,13 @@ async def manual_dial(req: Request):
         con.close()
         if not row:
             raise HTTPException(404, "lead not found")
+        if (row["company_id"] or "") != (cid or ""):
+            # company logins are locked to their own leads; the operator's
+            # ?company= context must match the lead being dialed
+            raise HTTPException(404, "lead not found")
         if row["dnc"]:
             raise HTTPException(403, "lead is on Do-Not-Call")
         phone, name = row["phone"], row["name"]
-        cid = row["company_id"] or cid
         lead_ctx = {"name": row["name"] or "", "city": row["city"] or "",
                     "property_type": row["property_type"] or "",
                     "monthly_bill_inr": row["monthly_bill_inr"] or 0,
@@ -2388,7 +2413,7 @@ async def set_disposition(call_id: str, req: Request):
     call = con.execute(
         f"SELECT lead_id, company_id FROM calls WHERE id={Q}",
         (call_id,)).fetchone()
-    if not call:
+    if not call or (call["company_id"] or "") != (_cid(req) or ""):
         con.close()
         raise HTTPException(404, "call not found")
     con.execute(f"UPDATE calls SET disposition={Q} WHERE id={Q}",
@@ -2444,8 +2469,12 @@ def call_list(req: Request):
 
 
 @app.get("/api/calls/{call_id}")
-def call_detail(call_id: str):
+def call_detail(call_id: str, req: Request):
+    cid = _cid(req)
     con = db()
+    if not _owns(con, "calls", call_id, cid):
+        con.close()
+        raise HTTPException(404, "call not found")
     r = con.execute(
         f"SELECT c.*, l.name AS lead_name, l.phone AS lead_phone FROM calls c"
         f" LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id={Q}",
@@ -2477,8 +2506,12 @@ def call_detail(call_id: str):
 
 
 @app.get("/api/calls/{call_id}/recording")
-def recording(call_id: str):
+def recording(call_id: str, req: Request):
+    cid = _cid(req)
     con = db()
+    if not _owns(con, "calls", call_id, cid):
+        con.close()
+        raise HTTPException(404, "call not found")
     r = con.execute(
         f"SELECT demo, lead_id, provider, recording_url FROM calls"
         f" WHERE id={Q}", (call_id,)).fetchone()
@@ -2558,7 +2591,27 @@ async def billing(req: Request):
         }
     cached = await refresh_billing_cache()
     if not cached:
-        raise HTTPException(502, "billing unavailable")
+        # Speko removed: the operator wallet is built from the Smallest
+        # credit balance + totals from synced calls in the local DB.
+        smallest = await refresh_smallest_billing_cache()
+        if not smallest:
+            raise HTTPException(502, "billing unavailable")
+        con = db()
+        row = con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds),0),"
+            " COALESCE(SUM(cost_usd),0) FROM calls").fetchone()
+        con.close()
+        total_sessions, total_seconds, total_cost_usd = row or (0, 0, 0)
+        return {
+            "balance_usd": 0,
+            "balance_inr": 0,
+            "total_cost_usd": round(total_cost_usd or 0, 2),
+            "total_cost_inr": round((total_cost_usd or 0) * USD_INR, 2),
+            "total_sessions": total_sessions or 0,
+            "total_minutes": round((total_seconds or 0) / 60, 1),
+            "smallest": smallest,
+            "breakdown": [],
+        }
     try:
         cached["smallest"] = await refresh_smallest_billing_cache()
     except Exception:
