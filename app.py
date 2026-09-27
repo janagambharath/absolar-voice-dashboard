@@ -2529,7 +2529,7 @@ def recording(call_id: str, req: Request):
         url = r["recording_url"] or ""
         if not url:
             raise HTTPException(502, "recording unavailable")
-        return _proxy_audio(url)
+        d1=db();r2=d1.execute(f"SELECT * FROM companies WHERE id={Q}",(cid,)).fetchone();d1.close();return _proxy_audio(url,{"Authorization":f"Bearer {(r2['smallest_api_key']or'')}"}if r2 else{})
     with speko() as c:
         upstream = c.get(f"/v1/sessions/{call_id}/recording")
     if upstream.status_code != 200:
@@ -2540,11 +2540,11 @@ def recording(call_id: str, req: Request):
     return _proxy_audio(url)
 
 
-def _proxy_audio(url: str):
-    # Proxy the bytes through the dashboard so the recording plays
+def _proxy_audio(url: str, headers: dict = None):
+    headers = headers or {}  # Proxy the bytes through the dashboard so the recording plays
     # inline in the call drawer instead of opening an external site.
     try:
-        head = httpx.head(url, timeout=15, follow_redirects=True)
+        head = httpx.head(url, timeout=15, follow_redirects=True, headers=headers)
         media = head.headers.get("content-type", "").split(";")[0].strip()
     except Exception:
         media = ""
@@ -2554,7 +2554,7 @@ def _proxy_audio(url: str):
     def gen():
         try:
             with httpx.stream("GET", url, timeout=120,
-                              follow_redirects=True) as rs:
+                              follow_redirects=True, headers=headers) as rs:
                 for chunk in rs.iter_bytes(65536):
                     yield chunk
         except Exception:
