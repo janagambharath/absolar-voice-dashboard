@@ -1406,7 +1406,7 @@ def admin_companies(req: Request):
             "smallest_from_number": c.get("smallest_from_number") or "",
             "caller_id": c.get("caller_id") or "",
             "rate_per_min": c.get("rate_per_min") or 15,
-            "has_smallest_api_key": bool(c.get("smallest_api_key")), "has_meta_page_token": bool(c.get("meta_page_token")),
+            "has_smallest_api_key": bool(c.get("smallest_api_key")),
             "leads": n_leads, "calls": n_calls,
         })
     con.close()
@@ -1500,7 +1500,6 @@ async def admin_update_company(cid: str, req: Request):
                 502, f"could not reach Smallest: {type(e).__name__}")
         sets.append(f"smallest_api_key={Q}")
         vals.append(new_key)
-    if body.get("meta_page_token"): new_tok=str(body["meta_page_token"]).strip(); sets.append(f"meta_page_token={Q}"); vals.append(new_tok)
     if "rate_per_min" in body:
         try:
             rate = float(body["rate_per_min"])
