@@ -903,7 +903,7 @@ async function doSaveCompany(){
     if(k)body.smallest_api_key=k;
     await ajpatch('/api/admin/companies/'+cid,body);
     closeModal('coEditModal');
-    toast(k?'Saved — fetching calls…':'Saved');
+    toast('Saved — fetching calls…');
     renderCompanies();
     COMPANIES=await api('/api/admin/companies');
   }catch(e){toast('Save failed: '+e.message)}
