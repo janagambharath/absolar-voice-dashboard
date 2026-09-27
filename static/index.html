@@ -877,7 +877,7 @@ async function doCreateCompany(){
   }catch(e){toast('Create failed: '+e.message)}
 }
 async function editCompany(cid){
-  const c=await api('/api/admin/companies').then(l=>l.find(x=>x.id===cid));
+  const c=await api('/api/admin/companies').then(l=>l.find(x=>String(x.id)===String(cid)));
   if(!c)return;
   $('ceCid').value=c.id;$('ceId').textContent=c.id;
   $('ceName').value=c.name;$('ceLogin').value=c.login_id||'';
