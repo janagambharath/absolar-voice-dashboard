@@ -13,8 +13,7 @@ What it does:
     objection signals, talk ratio and a suggested next action with
     one-tap apply.
   - Manual dial: POST /api/dial places a Smallest outbound call on the
-    company's agent + caller ID, with DNC guard and activity logging.
-        
+    company's agent + caller ID, with DNC guard and activity logging.        
   - Billing: provider cost split (cached).
   - Instant page loads: everything served from the local DB; Smallest
     syncs in the background (new conversations only).
