@@ -587,7 +587,7 @@ ol.steps b{color:var(--ink);font-weight:600}
       <input class="ctl" id="ceName" style="width:100%"></div>
     <div class="frow"><label class="fld">Client login ID</label>
       <input class="ctl mono" id="ceLogin" style="width:100%"></div>
-    <div class="frow"><label class="fld"><input type="checkbox" id="ceClientView" style="margin-right:8px">Client view — hide Integrations, Billing & all costs from this login</label></div>
+    <div class="frow"><label class="fld"><input type="checkbox" id="ceClientView" style="margin-right:8px">Client view — hide Integrations & wallet from this login</label></div>
     <hr class="hr">
     <div class="msub" style="margin-bottom:10px">Voice provider wiring — operator only. Client logins never see these.</div>
     <div class="frow"><label class="fld">Smallest agent ID</label>
@@ -599,7 +599,7 @@ ol.steps b{color:var(--ink);font-weight:600}
     <div class="frow"><label class="fld">Caller ID</label>
       <input class="ctl mono" id="ceCallerId" style="width:100%" placeholder="+91…"></div>
     <div class="frow"><label class="fld">Billing rate (₹/min)</label>
-      <input type="number" class="ctl" id="ceRate" style="width:100%" min="0" step="0.5"></div><hr class="hr"><div class="msub" style="margin-bottom:10px">Meta Lead Ads — operator only.</div><div class="frow"><label class="fld">Meta Page access token</label><input type="password" class="ctl mono" id="ceMetaToken" style="width:100%" placeholder="Leave blank to keep current" autocomplete="off"></div>
+      <input type="number" class="ctl" id="ceRate" style="width:100%" min="0" step="0.5"></div>
     <div class="rowflex" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal('coEditModal')">Cancel</button>
       <button class="btn primary" onclick="doSaveCompany()">Save</button>
@@ -694,9 +694,9 @@ function setCompany(c){
   // client companies (hide_integrations=1): the Integrations nav must not
   // exist for them — provider keys/balances are operator-only
   const hideInt=!!c.hide_integrations;
-  document.querySelectorAll('#sideNav .navitem[data-v="integrations"],#bnav button[data-v="integrations"],#sideNav .navitem[data-v="billing"],#bnav button[data-v="billing"]')
+  document.querySelectorAll('#sideNav .navitem[data-v="integrations"],#bnav button[data-v="integrations"]')
     .forEach(el=>{el.style.display=hideInt?'none':''});
-  if(hideInt&&typeof VIEW!=='undefined'&&(VIEW==='integrations'||VIEW==='billing'))go('dash');
+  if(hideInt&&typeof VIEW!=='undefined'&&VIEW==='integrations')go('dash');
 }
 function cq(p){return p+(p.includes('?')?'&':'?')+'company='+CO.id}
 
@@ -708,7 +708,7 @@ function go(v){
   // with no companies yet there is nothing to show but the admin
   if(!CO&&v!=='companies')v='companies';
   // block the Integrations view outright for client companies
-  if((v==='integrations'||v==='billing')&&CO&&CO.hide_integrations)v='dash';
+  if(v==='integrations'&&CO&&CO.hide_integrations)v='dash';
   VIEW=v;
   document.querySelectorAll('#sideNav .navitem').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
@@ -760,7 +760,7 @@ async function renderDash(){
     const cards=[
       {cls:'hero',lbl:'Qualified leads',val:k.qualified,d:'up',dt:k.qualify_rate+'% of connects',cap:'from answered calls',go:'pipe'},
       {lbl:'Connect rate',val:k.connect_rate+'%',d:'flat',dt:k.connected+' of '+k.dials+' dials',cap:'outbound dials',go:'calls'},
-      ...((CO&&CO.hide_integrations)?[]:[{lbl:'Cost / qualified',val:inr(k.cost_per_qualified),d:'flat',dt:'total '+inr(k.spend_inr),cap:'call spend',go:'billing'}]),
+      {lbl:'Cost / qualified',val:inr(k.cost_per_qualified),d:'flat',dt:'total '+inr(k.spend_inr),cap:'call spend',go:'billing'},
       {lbl:'Follow-ups due',val:k.tasks_due,d:k.tasks_due>0?'down':'flat',dt:k.stale_deals+' stale deals',cap:'needs attention',go:'tasks'},
     ];
     $('dashStats').innerHTML=cards.map(s=>`<div class="stat ${s.cls||''}">
@@ -888,7 +888,7 @@ async function editCompany(cid){
   $('ceSmallestKey').placeholder=c.has_smallest_api_key?'Set — leave blank to keep':'Not set';
   $('ceSmallestFrom').value=c.smallest_from_number||'';
   $('ceCallerId').value=c.caller_id||'';
-  $('ceRate').value=c.rate_per_min??15;$('ceMetaToken').value='';$('ceMetaToken').placeholder=c.has_meta_page_token?'Set — leave blank to keep':'Not set';
+  $('ceRate').value=c.rate_per_min??15;
   openModal('coEditModal');
 }
 async function doSaveCompany(){
@@ -900,7 +900,7 @@ async function doSaveCompany(){
       caller_id:$('ceCallerId').value.trim(),
       rate_per_min:parseFloat($('ceRate').value)||0};
     const k=$('ceSmallestKey').value.trim();
-    if(k)body.smallest_api_key=k;const mt=$('ceMetaToken').value.trim();if(mt)body.meta_page_token=mt;
+    if(k)body.smallest_api_key=k;
     await ajpatch('/api/admin/companies/'+cid,body);
     closeModal('coEditModal');
     toast('Saved — fetching calls…');
@@ -1057,7 +1057,7 @@ function drawLeadDrawer(){
     body.innerHTML=d.calls.length?d.calls.map(c=>`
       <div class="taskrow" onclick="openCall('${c.id}')" style="cursor:pointer">
         <div style="flex:1"><div class="tt" style="font-size:13px;font-weight:600">${esc((DISP_LABEL[c.disposition]||c.outcome||'Call').replace(/_/g,' '))}</div>
-        <div class="small">${mmss(c.duration_seconds)}${(CO&&CO.hide_integrations)?'':` · ${c.cost_usd?inr(c.cost_usd*FX):'—'}`} · ${fdate(c.started_at)}</div>
+        <div class="small">${mmss(c.duration_seconds)} · ${c.cost_usd?inr(c.cost_usd*FX):'—'} · ${fdate(c.started_at)}</div>
         ${c.summary?`<div class="small mt8">${esc(c.summary)}</div>`:''}</div>
         ${ic('chev-r',15)}</div>`).join('')
       :`<div class="empty"><div class="et">No calls yet.</div><p>Tap “Call now” to dial this lead.</p></div>`;
@@ -1112,7 +1112,7 @@ async function renderCalls(){
   pg.innerHTML=phead('Sell','Calls',`<span id="callMeta">Loading…</span>`,
     `<button class="btn sm primary" onclick="openDialer()">${ic('phone',14)} Call now</button>`)+
   `<div class="tblwrap"><table class="tbl"><thead><tr>
-    <th>Lead</th><th>Outcome</th><th>Intent</th><th class="r">Duration</th>${(CO&&CO.hide_integrations)?'':'<th class="r">Cost</th>'}<th class="r">When</th><th></th>
+    <th>Lead</th><th>Outcome</th><th>Intent</th><th class="r">Duration</th><th class="r">Cost</th><th class="r">When</th><th></th>
   </tr></thead><tbody id="callRows"></tbody></table></div>`;
   hydrateIcons(pg);
   try{
@@ -1123,7 +1123,7 @@ async function renderCalls(){
       <td>${c.disposition?`<span class="pill ${c.disposition.startsWith('qualified')?'p-green':c.disposition.startsWith('not_interested')||c.disposition==='dnc'?'p-red':'p-grey'}">${esc(DISP_LABEL[c.disposition]||c.disposition)}</span>`:`<span class="small">${esc((c.outcome||'—').replace(/_/g,' '))}</span>`}</td>
       <td>${c.intent_verdict?`<span class="pill ${INTENT_PILL[c.intent_verdict]||'p-grey'}">${INTENT_LABEL[c.intent_verdict]||c.intent_verdict}</span>`:'<span class="small">—</span>'}</td>
       <td class="r mono">${mmss(c.duration_seconds)}</td>
-      ${(CO&&CO.hide_integrations)?'':`<td class="r mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</td>`}`}
+      <td class="r mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</td>
       <td class="r small">${ageOf(c.started_at)}</td>
       <td class="r"><button class="iconbtn" onclick="event.stopPropagation();openCall('${c.id}')">${ic('chev-r',15)}</button></td>
     </tr>`).join('')||`<tr><td colspan="7" class="empty"><div class="et">No calls yet.</div></td></tr>`;
@@ -1175,7 +1175,7 @@ async function openCall(id){
     <h3 style="font-size:13px;font-weight:700;margin-bottom:12px">Transcript</h3>
     ${tr.length?`<div class="tr">${tr.map(t=>`<div class="bub ${t.speaker==='agent'?'agent':'lead'}">${esc(t.text)}</div>`).join('')}</div>`:'<div class="small">No transcript captured.</div>'}
     <hr class="hr">
-    ${(CO&&CO.hide_integrations)?'':`<div class="small">Cost: <span class="mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</span></div>`}`;
+    <div class="small">Cost: <span class="mono">${c.cost_usd?inr(c.cost_usd*FX):'—'}</span>${c.cost_breakdown_usd?' · see billing':''}</div>`;
   hydrateIcons($('drawer'));
 }
 async function saveDisposition(){
@@ -1209,7 +1209,7 @@ function campCard(c){
     <div class="pbar"><i style="width:${pct}%"></i></div>
     <div class="rowflex small" style="gap:14px;margin-top:8px">
       <span><b>${c.interested}</b> interested</span>
-      ${(CO&&CO.hide_integrations)?'':`<span class="mono">${inr(c.cost_inr)} spent</span>`}
+      <span class="mono">${inr(c.cost_inr)} spent</span>
     </div>
   </div>`;
 }
@@ -1251,8 +1251,8 @@ async function openCampaign(id){
     <div class="statgrid">
       <div class="stat"><div class="sv">${c.done}/${c.total}</div><div class="sk2">called</div></div>
       <div class="stat"><div class="sv">${c.interested}</div><div class="sk2">interested</div></div>
-      ${(CO&&CO.hide_integrations)?'':`<div class="stat"><div class="sv">${inr(c.cost_inr)}</div><div class="sk2">spent</div></div>`}
-      ${(CO&&CO.hide_integrations)?'':`<div class="stat"><div class="sv">${c.interested?inr(cpi):'—'}</div><div class="sk2">per interested</div></div>`}
+      <div class="stat"><div class="sv">${inr(c.cost_inr)}</div><div class="sk2">spent</div></div>
+      <div class="stat"><div class="sv">${c.interested?inr(cpi):'—'}</div><div class="sk2">per interested</div></div>
     </div>
     <div class="pbar" style="margin:12px 0"><i style="width:${pct}%"></i></div>
     ${c.status==='draft'?`<div class="small mb12">Starting dials the list one by one, ~45s apart. Roughly ${inr(c.total*6)} for ${c.total} calls.</div>`:''}
