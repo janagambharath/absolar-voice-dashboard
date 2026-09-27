@@ -888,7 +888,7 @@ async function editCompany(cid){
   $('ceSmallestKey').placeholder=c.has_smallest_api_key?'Set — leave blank to keep':'Not set';
   $('ceSmallestFrom').value=c.smallest_from_number||'';
   $('ceCallerId').value=c.caller_id||'';
-  $('ceRate').value=c.rate_per_min??15;$('ceMetaToken').value='';$('ceMetaToken').placeholder=c.has_meta_page_token?'Set — leave blank to keep':'Not set';
+  $('ceRate').value=c.rate_per_min??15;const _mt=$('ceMetaToken');if(_mt){_mt.value='';_mt.placeholder=c.has_meta_page_token?'Set — leave blank to keep':'Not set';}
   openModal('coEditModal');
 }
 async function doSaveCompany(){
@@ -900,7 +900,7 @@ async function doSaveCompany(){
       caller_id:$('ceCallerId').value.trim(),
       rate_per_min:parseFloat($('ceRate').value)||0};
     const k=$('ceSmallestKey').value.trim();
-    if(k)body.smallest_api_key=k;const mt=$('ceMetaToken').value.trim();if(mt)body.meta_page_token=mt;
+    if(k)body.smallest_api_key=k;const _mte=$('ceMetaToken');const mt=_mte?_mte.value.trim():'';if(mt)body.meta_page_token=mt;
     await ajpatch('/api/admin/companies/'+cid,body);
     closeModal('coEditModal');
     toast('Saved — fetching calls…');
