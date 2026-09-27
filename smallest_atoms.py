@@ -14,7 +14,7 @@ Endpoint paths were confirmed against the official smallestai SDK
   - GET  /conversation/{callId}        -> transcript, events, status,
                                          recording_url, disconnectionReason
   - POST /conversation/outbound        -> {agentId, phoneNumber,
-                                           from_number, fromProductId,def _norm_log(item):
+                                           from_number, fromProductId,
                                            variables}
   - GET  /product/phone-numbers        -> rented numbers (data[])
   - GET  /payment/v1/credits/balance   -> data.creditBalance
@@ -113,7 +113,7 @@ def _norm_log(item):
     return {
         "id": (item.get("callId") or item.get("id")
                or item.get("_id") or ""),
-        "agent_id": item.get("agentId") or "",
+        "agent_id": _agent_id_str(item.get("agentId")),
         "to": (item.get("phoneNumber") or item.get("toNumber")
                or item.get("to") or ""),
         "from": item.get("fromNumber") or item.get("from") or "",
@@ -173,7 +173,7 @@ def get_call(api_key, call_id):
     d = d if isinstance(d, dict) else {}
     return {
         "id": d.get("callId") or d.get("id") or call_id,
-        "agent_id": d.get("agentId") or "",
+        "agent_id": _agent_id_str(d.get("agentId") or d.get("agent")),
         "to": d.get("phoneNumber") or d.get("toNumber") or "",
         "from": d.get("fromNumber") or "",
         "status": d.get("status") or "",
