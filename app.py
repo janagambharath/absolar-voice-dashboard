@@ -2524,12 +2524,28 @@ def recording(call_id: str, req: Request):
             raise HTTPException(404, "no recording")
         return StreamingResponse(open(path, "rb"), media_type="audio/wav")
     if (r["provider"] or "") == "smallest":
-        # Smallest hands us the recording URL at sync time; proxy it
-        # the same way so it plays inline in the call drawer.
+        # Smallest's /v1/recordings/{id} returns JSON {data: {url}} with
+             # a presigned S3 URL (not audio directly). Resolve it with the
+        # company's API key, then proxy the S3 URL (no auth needed).
         url = r["recording_url"] or ""
         if not url:
             raise HTTPException(502, "recording unavailable")
-        d1=db();r2=d1.execute(f"SELECT * FROM companies WHERE id={Q}",(cid,)).fetchone();d1.close();return _proxy_audio(url,{"Authorization":f"Bearer {(r2['smallest_api_key']or'')}"}if r2 else{})
+        con = db()
+        krow = con.execute(
+            f"SELECT smallest_api_key FROM companies WHERE id={Q}",
+            (cid,)).fetchone()
+        con.close()
+        key = (krow["smallest_api_key"] or "") if krow else ""
+        try:
+            rr = httpx.get(url, timeout=20, follow_redirects=True,
+                           headers={"Authorization": f"Bearer {key}"}
+                           if key else {})
+            audio_url = (rr.json().get("data") or {}).get("url") or ""
+        except Exception:
+            audio_url = ""
+        if not audio_url:
+            raise HTTPException(502, "recording unavailable")
+        return _proxy_audio(audio_url)
     with speko() as c:
         upstream = c.get(f"/v1/sessions/{call_id}/recording")
     if upstream.status_code != 200:
