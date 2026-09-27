@@ -101,11 +101,19 @@ def get_agent(api_key, agent_id):
 
 
 # ------------------------------------------------------------------- calls
+def _agent_id_str(v):
+    """Smallest returns agentId as an object ({_id, name, ...});
+    normalize to the plain string id so company mapping works."""
+    if isinstance(v, dict):
+        return v.get("_id") or v.get("id") or ""
+    return v or ""
+
+
 def _norm_log(item):
     return {
         "id": (item.get("callId") or item.get("id")
                or item.get("_id") or ""),
-        "agent_id": item.get("agentId") or "",
+        "agent_id": _agent_id_str(item.get("agentId")),
         "to": (item.get("phoneNumber") or item.get("toNumber")
                or item.get("to") or ""),
         "from": item.get("fromNumber") or item.get("from") or "",
@@ -165,7 +173,7 @@ def get_call(api_key, call_id):
     d = d if isinstance(d, dict) else {}
     return {
         "id": d.get("callId") or d.get("id") or call_id,
-        "agent_id": d.get("agentId") or "",
+        "agent_id": _agent_id_str(d.get("agentId") or d.get("agent")),
         "to": d.get("phoneNumber") or d.get("toNumber") or "",
         "from": d.get("fromNumber") or "",
         "status": d.get("status") or "",
